@@ -108,6 +108,9 @@ CSS = f"""
   background: transparent !important; }}
 #chat-view .bubble-wrap, #chat-view .wrapper {{ background: transparent !important; }}
 #chat-view .gr-group, #chat-view .styler {{ background: transparent !important; border: none !important; }}
+@media (max-width: 768px) {{  /* phones: drop the chat toolbar (share, clear, copy conversation) */
+  #chatbot .icon-button-wrapper.top-panel {{ display: none !important; }}
+}}
 #chat-input {{ background: {SURFACE} !important; border: 1px solid {BORDER} !important; border-radius: 26px !important;
   padding: 6px 6px 6px 16px !important; }}
 #chat-input textarea {{ font-size: 16px !important; background: transparent !important; border: none !important;
