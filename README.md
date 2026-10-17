@@ -32,7 +32,7 @@ Supports logging sets, undoing the last set, starting and ending sessions, "what
 | `exercises.py` | Exercise list loading and fuzzy matching |
 | `prompts.yaml` | Agent prompt templates and the notation rules (`instructions`) |
 | `data/exercises.json` | Canonical exercises and aliases |
-| `sql/schema.sql` | Supabase tables and row-level security |
+| `supabase/migrations/` | Supabase tables and row-level security (Supabase CLI migrations) |
 | `evals/` | Eval cases and runner |
 | `tests/` | Unit tests that need no model |
 
@@ -49,7 +49,14 @@ Set `DB_BACKEND=memory` in `.env` to try the chat without Supabase (local only; 
 
 ## Database setup
 
-Run `sql/schema.sql` in the Supabase SQL editor of a dev project. RLS is enabled with no policies, so the anon key can read nothing; the app uses the service-role key server-side.
+The schema lives in `supabase/migrations/`. Apply it with the Supabase CLI:
+
+```bash
+supabase link --project-ref <project-ref>
+supabase db push
+```
+
+Schema changes go in a new migration (`supabase migration new <name>`), never by editing an applied one. RLS is enabled with no policies, so the anon key can read nothing; the app uses the service-role key server-side.
 
 ## Evals
 
