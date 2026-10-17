@@ -44,6 +44,8 @@ def build_model(backend: str | None = None, model_id: str | None = None):
 
 TOOL_CALL_TAG = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 BROKEN_MARKUP = re.compile(r"</?tool_call>|<\|im_(start|end)\|>")
+# Prose announcing a next step ("let's start a new one") is not a reply; the model still owes a tool call.
+ANNOUNCES_ACTION = re.compile(r"\b(let'?s|let me (?!know)|i'?ll|i will|i'?m going to|i am going to|now i)\b|:\s*$", re.I)
 
 
 def _tool_call(name: str, arguments) -> ChatMessageToolCall:
@@ -57,8 +59,9 @@ def lenient_tool_call_parsing(model):
     smolagents calls model.parse_tool_calls only when the provider returned no structured tool call. Then:
     1. Qwen-style <tool_call>{...}</tool_call> markup in the text is parsed as tool calls.
     2. Text containing a JSON blob goes to smolagents' own parser, as before.
-    3. Plain prose is the model answering the user, so it becomes a final_answer call.
-    4. Empty text or broken markup still raises, so smolagents retries the step.
+    3. Prose that announces a next step ("let's start a new one") raises with a nudge to make that call.
+    4. Other plain prose is the model answering the user, so it becomes a final_answer call.
+    5. Empty text or broken markup still raises, so smolagents retries the step.
     """
     if getattr(model, "_lenient_parsing", False):  # the UI shares one model across agents
         return model
@@ -80,6 +83,9 @@ def lenient_tool_call_parsing(model):
         prose = text.strip()
         if not prose or BROKEN_MARKUP.search(prose):
             raise ValueError("The output contained no tool call. Reply to the user by calling final_answer.")
+        if ANNOUNCES_ACTION.search(prose):
+            raise ValueError(f'You wrote "{prose}" but made no tool call. Make that tool call now, '
+                             "or call final_answer if you meant this as your reply.")
         message.tool_calls = [_tool_call("final_answer", {"answer": prose})]
         return message
 
