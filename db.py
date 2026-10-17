@@ -40,6 +40,8 @@ class Database:
     def exercise_sets(self, exercise_id: str) -> list[dict]: ...
     def recent_sets(self, limit: int) -> list[dict]:
         """The user's most recent sets across all sessions, newest first."""
+    def sets_between(self, start: datetime, end: datetime) -> list[dict]:
+        """The user's sets logged in [start, end), oldest first."""
     # User exercises
     def add_user_exercise(self, exercise: dict) -> dict: ...
     def list_user_exercises(self) -> list[dict]: ...
@@ -119,6 +121,9 @@ class MemoryDB(Database):
 
     def recent_sets(self, limit):
         return sorted(self.sets, key=lambda s: s["logged_at"], reverse=True)[:limit]
+
+    def sets_between(self, start, end):
+        return sorted((s for s in self.sets if start <= s["logged_at"] < end), key=lambda s: s["logged_at"])
 
     def add_user_exercise(self, exercise):
         row = {**exercise, "user_id": self.user_id}
@@ -216,6 +221,11 @@ class SupabaseDB(Database):
     def recent_sets(self, limit):
         return self._rows(self.client.table("sets").select("*").eq("user_id", self.user_id)
                           .order("logged_at", desc=True).limit(limit).execute())
+
+    def sets_between(self, start, end):
+        return self._rows(self.client.table("sets").select("*").eq("user_id", self.user_id)
+                          .gte("logged_at", start.isoformat()).lt("logged_at", end.isoformat())
+                          .order("logged_at").execute())
 
     def add_user_exercise(self, exercise):
         return self.client.table("user_exercises").insert({**exercise, "user_id": self.user_id}).execute().data[0]

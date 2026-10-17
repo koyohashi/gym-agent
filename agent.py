@@ -9,7 +9,7 @@ import yaml
 from smolagents import CodeAgent, InferenceClientModel, LiteLLMModel
 from smolagents.memory import ActionStep, FinalAnswerStep, TaskStep
 
-from tools import ALL_TOOLS
+from tools import ALL_TOOLS, today_line
 
 PROMPTS_PATH = Path(__file__).parent / "prompts.yaml"
 MAX_STEPS = 10
@@ -54,7 +54,7 @@ def build_agent(model=None, verbosity_level: int = 1) -> CodeAgent:
         model=model or build_model(),
         prompt_templates=templates,
         instructions=instructions,
-        additional_authorized_imports=[],
+        additional_authorized_imports=["datetime"],
         max_steps=MAX_STEPS,
         verbosity_level=verbosity_level,
     )
@@ -83,7 +83,7 @@ def chat_steps(agent: CodeAgent, message: str) -> Iterator[dict]:
     Recent turns stay in memory so clarifying questions work.
     """
     _trim_memory(agent)
-    for event in agent.run(message, stream=True, reset=False):
+    for event in agent.run(f"{today_line()}\n{message}", stream=True, reset=False):
         if isinstance(event, ActionStep):
             thought = _thought(event.model_output)
             code = (event.code_action or "").strip()

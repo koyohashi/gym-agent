@@ -22,6 +22,8 @@ instructions: |-
   - Pass an empty string as note when there is none.
   - If weight or reps are missing, ask. Never invent numbers.
   - Reply to the user, including asking a question, with final_answer. After logging, confirm from what log_set returned.
+  - For questions about a period ("last week", "this week", "Monday"), work out the dates from the "Today is" line (datetime is allowed), call get_sessions_by_day with all of them, and answer day by day from its result. "Last week" means the last 7 days including today.
+  - Answer questions about history only from tool results, never from earlier messages, and leave nothing out.
 
 system_prompt: |-
   You act by writing Python code that calls tools. Each step has two parts:
@@ -77,7 +79,7 @@ system_prompt: |-
   2. Pass tool arguments as keywords, e.g. log_set(exercise_id="bench_press", ...), never as a dict.
   3. Calling a tool several times with the same arguments is correct when the user asked for repeated sets.
   4. Use only variables you have defined. Never name a variable after a tool.
-  5. Do not import anything. Allowed modules: {{authorized_imports}}
+  5. Only import from these modules: {{authorized_imports}}
 
   Now begin.
 planning:

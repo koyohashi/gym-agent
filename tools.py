@@ -1,6 +1,7 @@
 """The @tool functions the agent can call. Database access goes through db.py, exercise lookup through exercises.py."""
 
 import os
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from smolagents import tool
@@ -13,6 +14,11 @@ UNITS = {"lbs": "lbs", "lb": "lbs", "pounds": "lbs", "pound": "lbs", "kg": "kg",
 
 def _tz() -> ZoneInfo:
     return ZoneInfo(os.environ.get("APP_TIMEZONE", "UTC"))
+
+
+def today_line() -> str:
+    """Context for the model, which otherwise does not know the date."""
+    return f"(Today is {datetime.now(_tz()).strftime('%a %Y-%m-%d')} in the user's timezone.)"
 
 
 def _date(ts) -> str:
@@ -253,6 +259,65 @@ def get_last_performance(exercise_id: str) -> str:
     return f"Last time ({_date(result['session']['started_at'])}), {exercise_id}: {sets}"
 
 
+MAX_DAYS = 31
+
+
+def _runs(sets: list[dict]) -> str:
+    """'3×8 @135 lbs, 1×1 @225 lbs (PR)': consecutive identical sets collapsed into one entry."""
+    parts = []
+    for s in sets:
+        key = (float(s["weight"]), s["unit"], s["reps"], s.get("note") or "")
+        if parts and parts[-1][0] == key:
+            parts[-1][1] += 1
+        else:
+            parts.append([key, 1])
+    out = []
+    for (weight, unit, reps, note), count in parts:
+        load = "bodyweight" if weight == 0 else f"@{weight:g} {unit}"
+        out.append(f"{count}×{reps} {load}" + (f" ({note})" if note else ""))
+    return ", ".join(out)
+
+
+@tool
+def get_sessions_by_day(days: list) -> str:
+    """Get what the user did on each of the given days, one line per day (days with nothing logged are included).
+    Use it for questions about a period, e.g. "what did I do last week?" or "what did I do Monday?".
+
+    Args:
+        days: Dates as "YYYY-MM-DD" strings in the user's local time, e.g. ["2026-10-11", "2026-10-12"]. At most 31.
+    """
+    if not isinstance(days, (list, tuple)) or not days:
+        return 'ERROR: days must be a non-empty list of "YYYY-MM-DD" strings.'
+    if len(days) > MAX_DAYS:
+        return f"ERROR: at most {MAX_DAYS} days per call."
+    try:
+        dates = sorted({date.fromisoformat(str(d).strip()) for d in days})
+    except ValueError:
+        return 'ERROR: every day must be a "YYYY-MM-DD" string.'
+
+    tz = _tz()
+    start = datetime.combine(dates[0], time.min, tz)
+    end = datetime.combine(dates[-1] + timedelta(days=1), time.min, tz)
+    by_day: dict[date, list[dict]] = {}
+    for s in db.get_db().sets_between(start, end):
+        by_day.setdefault(s["logged_at"].astimezone(tz).date(), []).append(s)
+
+    lines = []
+    for d in dates:
+        sets = by_day.get(d, [])
+        label = d.strftime("%a %Y-%m-%d")
+        if not sets:
+            lines.append(f"{label}: nothing logged")
+            continue
+        by_exercise: dict[str, list[dict]] = {}
+        for s in sets:
+            by_exercise.setdefault(s["exercise_id"], []).append(s)
+        n_sessions = len({s["session_id"] for s in sets})
+        summary = "; ".join(f"{ex}: {_runs(ex_sets)}" for ex, ex_sets in by_exercise.items())
+        lines.append(f"{label} ({len(sets)} sets, {n_sessions} session{'s' if n_sessions > 1 else ''}): {summary}")
+    return "\n".join(lines)
+
+
 @tool
 def get_pr(exercise_id: str) -> str:
     """Get the personal record (heaviest weight for any reps) for an exercise.
@@ -269,5 +334,5 @@ def get_pr(exercise_id: str) -> str:
 
 
 ALL_TOOLS = [resolve_exercise, add_exercise, start_session, end_session, log_set, undo_last_set, edit_set,
-             get_active_session, get_last_performance, get_pr]
+             get_active_session, get_last_performance, get_sessions_by_day, get_pr]
 WRITE_TOOLS = {"add_exercise", "start_session", "end_session", "log_set", "undo_last_set", "edit_set"}
