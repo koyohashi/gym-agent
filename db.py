@@ -33,6 +33,8 @@ class Database:
     def session_sets(self, session_id: str) -> list[dict]:
         """Sets in a session, oldest first."""
     def delete_last_set(self, session_id: str) -> dict | None: ...
+    def update_set(self, set_id: str, changes: dict) -> dict:
+        """Apply changes (weight, reps, unit, note) to one set and return the updated row."""
     def last_performance(self, exercise_id: str, exclude_session_id: str | None) -> dict | None:
         """{"session": ..., "sets": [...]} for the most recent other session that includes the exercise."""
     def exercise_sets(self, exercise_id: str) -> list[dict]: ...
@@ -96,6 +98,11 @@ class MemoryDB(Database):
             return None
         self.sets.remove(sets[-1])
         return sets[-1]
+
+    def update_set(self, set_id, changes):
+        row = next(s for s in self.sets if s["id"] == set_id)
+        row.update(changes)
+        return row
 
     def last_performance(self, exercise_id, exclude_session_id):
         prior = [s for s in self.sets if s["exercise_id"] == exercise_id and s["session_id"] != exclude_session_id]
@@ -178,6 +185,10 @@ class SupabaseDB(Database):
             return None
         self.client.table("sets").delete().eq("id", rows[0]["id"]).execute()
         return rows[0]
+
+    def update_set(self, set_id, changes):
+        return self._rows(self.client.table("sets").update(changes).eq("id", set_id)
+                          .eq("user_id", self.user_id).execute())[0]
 
     def last_performance(self, exercise_id, exclude_session_id):
         query = (self.client.table("sets").select("session_id").eq("user_id", self.user_id)

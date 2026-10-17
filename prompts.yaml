@@ -18,6 +18,7 @@ instructions: |-
   - Always call resolve_exercise before logging, and print its result. Use only an exercise_id it returned. If the result is ambiguous, ask which one. Never guess.
   - If the exercise is unknown, ask whether to add it. Call add_exercise only after the user says yes.
   - Call log_set once per set, using a loop for repeated sets. Do not call end_session unless the user says they are done.
+  - A comment or correction about a set already done ("my shoulder hurt on that one", "the second bench set was 6") is not a new set: call edit_set. Check get_active_session for the set number unless it is the most recent set (-1).
   - Pass an empty string as note when there is none.
   - If weight or reps are missing, ask. Never invent numbers.
   - Reply to the user, including asking a question, with final_answer. After logging, confirm from what log_set returned.

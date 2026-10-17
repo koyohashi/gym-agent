@@ -40,6 +40,33 @@ def _exercise_label(e: dict) -> str:
     return f"{e['id']} ({e['name']})"
 
 
+def _check_set_values(**values) -> dict | str:
+    """Validate and normalize any of weight, reps, unit. Returns the clean values, or an ERROR string."""
+    clean = {}
+    if "weight" in values:
+        try:
+            clean["weight"] = float(values["weight"])
+        except (TypeError, ValueError):
+            return f"ERROR: weight must be a number, got '{values['weight']}'."
+        if clean["weight"] < 0:
+            return "ERROR: weight must be 0 or more."
+    if "reps" in values:
+        try:
+            reps = float(values["reps"])
+        except (TypeError, ValueError):
+            return f"ERROR: reps must be a whole number, got '{values['reps']}'."
+        if not reps.is_integer():
+            return f"ERROR: reps must be a whole number, got '{values['reps']}'."
+        if not 1 <= reps < 200:
+            return "ERROR: reps must be between 1 and 199."
+        clean["reps"] = int(reps)
+    if "unit" in values:
+        clean["unit"] = UNITS.get(str(values["unit"]).strip().lower() or "lbs")
+        if clean["unit"] is None:
+            return f"ERROR: unit must be 'lbs' or 'kg', got '{values['unit']}'."
+    return clean
+
+
 @tool
 def resolve_exercise(query: str) -> str:
     """Find the exercise id for a name or abbreviation the user typed. Call this before logging or looking up any exercise.
@@ -122,28 +149,14 @@ def log_set(exercise_id: str, weight: float, reps: int, unit: str, note: str) ->
     """
     if exercise_id not in exercises.get_index().by_id:
         return f"ERROR: unknown exercise_id '{exercise_id}'. Call resolve_exercise first."
-    try:
-        weight = float(weight)
-    except (TypeError, ValueError):
-        return f"ERROR: weight must be a number, got '{weight}'."
-    try:
-        reps_f = float(reps)
-    except (TypeError, ValueError):
-        return f"ERROR: reps must be a whole number, got '{reps}'."
-    if not reps_f.is_integer():
-        return f"ERROR: reps must be a whole number, got '{reps}'."
-    reps = int(reps_f)
-    unit_norm = UNITS.get(str(unit).strip().lower() or "lbs")
-    if weight < 0:
-        return "ERROR: weight must be 0 or more."
-    if not 1 <= reps < 200:
-        return "ERROR: reps must be between 1 and 199."
-    if unit_norm is None:
-        return f"ERROR: unit must be 'lbs' or 'kg', got '{unit}'."
+    checked = _check_set_values(weight=weight, reps=reps, unit=unit)
+    if isinstance(checked, str):
+        return checked
 
     database = db.get_db()
     session, created = database.start_session("")
-    row = database.add_set(session["id"], exercise_id, weight, reps, unit_norm, note.strip())
+    row = database.add_set(session["id"], exercise_id, checked["weight"], checked["reps"], checked["unit"],
+                           note.strip())
     reply = f"Logged {_set_str(row)}"
     if created:
         reply += " (started a new session)"
@@ -161,6 +174,46 @@ def undo_last_set() -> str:
     if not removed:
         return "ERROR: the active session has no sets."
     return f"Removed {_set_str(removed)}."
+
+
+@tool
+def edit_set(set_number: int, weight: float | None = None, reps: int | None = None, unit: str | None = None,
+             note: str | None = None) -> str:
+    """Change a set already logged in the active session: fix its numbers or add a note.
+    Use this, not log_set, when the user comments on or corrects a set they already did.
+
+    Args:
+        set_number: The set's number in get_active_session's list. -1 means the most recent set.
+        weight: New weight, or None to keep it.
+        reps: New reps, or None to keep them.
+        unit: New unit, "lbs" or "kg", or None to keep it.
+        note: New note, or None to keep it. An empty string removes the note.
+    """
+    database = db.get_db()
+    session = database.active_session()
+    if not session:
+        return "ERROR: no active session."
+    sets = database.session_sets(session["id"])
+    if not sets:
+        return "ERROR: the active session has no sets."
+    if set_number == -1:
+        set_number = len(sets)
+    if not 1 <= set_number <= len(sets):
+        return f"ERROR: set_number must be between 1 and {len(sets)}, or -1 for the most recent set."
+
+    changes = _check_set_values(**{k: v for k, v in {"weight": weight, "reps": reps, "unit": unit}.items()
+                                   if v is not None})
+    if isinstance(changes, str):
+        return changes
+    if note is not None:
+        changes["note"] = note.strip() or None
+    if not changes:
+        return "ERROR: nothing to change. Pass at least one of weight, reps, unit, note."
+
+    before = sets[set_number - 1]
+    old = _set_str(before)
+    after = database.update_set(before["id"], changes)
+    return f"Updated set {set_number}: {_set_str(after)} (was {old})."
 
 
 @tool
@@ -215,6 +268,6 @@ def get_pr(exercise_id: str) -> str:
     return f"PR for {exercise_id}: {_set_str(pr, with_exercise=False)} on {_date(pr['logged_at'])}"
 
 
-ALL_TOOLS = [resolve_exercise, add_exercise, start_session, end_session, log_set, undo_last_set,
+ALL_TOOLS = [resolve_exercise, add_exercise, start_session, end_session, log_set, undo_last_set, edit_set,
              get_active_session, get_last_performance, get_pr]
-WRITE_TOOLS = {"add_exercise", "start_session", "end_session", "log_set", "undo_last_set"}
+WRITE_TOOLS = {"add_exercise", "start_session", "end_session", "log_set", "undo_last_set", "edit_set"}
