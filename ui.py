@@ -103,9 +103,16 @@ CSS = f"""
   font-variant-numeric: tabular-nums; box-shadow: none !important; }}
 #session-start-box {{ display: none !important; }}
 
-#chat-view {{ height: calc(100dvh - {HEADER}); padding: 0 12px calc(12px + env(safe-area-inset-bottom)); }}
-#chatbot {{ flex: 1 1 auto !important; height: auto !important; min-height: 0; border: none !important;
+#chat-view {{ height: calc(100dvh - {HEADER}); padding: 0 12px calc(12px + env(safe-area-inset-bottom));
+  overflow: hidden; }}
+/* Let every flex container down to the message list shrink, so the list scrolls instead of growing the page. */
+#chat-view > .column, #chatbot, #chatbot > .wrapper {{ min-height: 0 !important; }}
+#chat-view > .column {{ flex: 1 1 0 !important; overflow: hidden; }}
+#chatbot {{ flex: 1 1 0 !important; height: auto !important; border: none !important;
   background: transparent !important; }}
+#chatbot > .wrapper {{ height: 100%; }}
+#chatbot .bubble-wrap {{ flex: 1 1 0; min-height: 0; height: 100%; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; }}
 #chat-view .bubble-wrap, #chat-view .wrapper {{ background: transparent !important; }}
 #chat-view .gr-group, #chat-view .styler {{ background: transparent !important; border: none !important; }}
 @media (max-width: 768px) {{  /* phones: drop the chat toolbar (share, clear, copy conversation) */
