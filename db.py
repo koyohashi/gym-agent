@@ -38,6 +38,8 @@ class Database:
     def last_performance(self, exercise_id: str, exclude_session_id: str | None) -> dict | None:
         """{"session": ..., "sets": [...]} for the most recent other session that includes the exercise."""
     def exercise_sets(self, exercise_id: str) -> list[dict]: ...
+    def recent_sets(self, limit: int) -> list[dict]:
+        """The user's most recent sets across all sessions, newest first."""
     # User exercises
     def add_user_exercise(self, exercise: dict) -> dict: ...
     def list_user_exercises(self) -> list[dict]: ...
@@ -114,6 +116,9 @@ class MemoryDB(Database):
 
     def exercise_sets(self, exercise_id):
         return [s for s in self.sets if s["exercise_id"] == exercise_id]
+
+    def recent_sets(self, limit):
+        return sorted(self.sets, key=lambda s: s["logged_at"], reverse=True)[:limit]
 
     def add_user_exercise(self, exercise):
         row = {**exercise, "user_id": self.user_id}
@@ -207,6 +212,10 @@ class SupabaseDB(Database):
     def exercise_sets(self, exercise_id):
         return self._rows(self.client.table("sets").select("*").eq("user_id", self.user_id)
                           .eq("exercise_id", exercise_id).execute())
+
+    def recent_sets(self, limit):
+        return self._rows(self.client.table("sets").select("*").eq("user_id", self.user_id)
+                          .order("logged_at", desc=True).limit(limit).execute())
 
     def add_user_exercise(self, exercise):
         return self.client.table("user_exercises").insert({**exercise, "user_id": self.user_id}).execute().data[0]
