@@ -1,22 +1,20 @@
 """Model config and agent construction, shared by app.py, tests, and the eval runner."""
 
-import json
 import os
 import re
-import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import yaml
-from smolagents import InferenceClientModel, LiteLLMModel, ToolCallingAgent
+from smolagents import CodeAgent, InferenceClientModel, LiteLLMModel
 from smolagents.memory import ActionStep, FinalAnswerStep, TaskStep
-from smolagents.models import ChatMessageToolCall, ChatMessageToolCallFunction, MessageRole, parse_json_if_needed
 
 from tools import ALL_TOOLS
 
 PROMPTS_PATH = Path(__file__).parent / "prompts.yaml"
 MAX_STEPS = 10
 MAX_TURNS_IN_MEMORY = 6  # older turns are dropped; the database, not memory, is the source of truth
+MAX_TITLE_CHARS = 120
 
 
 def build_model(backend: str | None = None, model_id: str | None = None):
@@ -42,58 +40,6 @@ def build_model(backend: str | None = None, model_id: str | None = None):
     raise ValueError(f"Unknown MODEL_BACKEND '{backend}' (expected ollama, hf, or litellm)")
 
 
-TOOL_CALL_TAG = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
-BROKEN_MARKUP = re.compile(r"</?tool_call>|<\|im_(start|end)\|>")
-# Prose announcing a next step ("let's start a new one") is not a reply; the model still owes a tool call.
-ANNOUNCES_ACTION = re.compile(r"\b(let'?s|let me (?!know)|i'?ll|i will|i'?m going to|i am going to|now i)\b|:\s*$", re.I)
-
-
-def _tool_call(name: str, arguments) -> ChatMessageToolCall:
-    return ChatMessageToolCall(id=str(uuid.uuid4()), type="function",
-                               function=ChatMessageToolCallFunction(name=name, arguments=arguments))
-
-
-def lenient_tool_call_parsing(model):
-    """Make text-only model replies usable instead of failing the step.
-
-    smolagents calls model.parse_tool_calls only when the provider returned no structured tool call. Then:
-    1. Qwen-style <tool_call>{...}</tool_call> markup in the text is parsed as tool calls.
-    2. Text containing a JSON blob goes to smolagents' own parser, as before.
-    3. Prose that announces a next step ("let's start a new one") raises with a nudge to make that call.
-    4. Other plain prose is the model answering the user, so it becomes a final_answer call.
-    5. Empty text or broken markup still raises, so smolagents retries the step.
-    """
-    if getattr(model, "_lenient_parsing", False):  # the UI shares one model across agents
-        return model
-    original = model.parse_tool_calls
-
-    def parse_tool_calls(message):
-        text = message.content if isinstance(message.content, str) else ""
-        message.role = MessageRole.ASSISTANT
-        blocks = TOOL_CALL_TAG.findall(text)
-        if blocks:
-            calls = []
-            for block in blocks:
-                data = json.loads(block, strict=False)
-                calls.append(_tool_call(data["name"], parse_json_if_needed(data.get("arguments", {}))))
-            message.tool_calls = calls
-            return message
-        if "{" in text:
-            return original(message)
-        prose = text.strip()
-        if not prose or BROKEN_MARKUP.search(prose):
-            raise ValueError("The output contained no tool call. Reply to the user by calling final_answer.")
-        if ANNOUNCES_ACTION.search(prose):
-            raise ValueError(f'You wrote "{prose}" but made no tool call. Make that tool call now, '
-                             "or call final_answer if you meant this as your reply.")
-        message.tool_calls = [_tool_call("final_answer", {"answer": prose})]
-        return message
-
-    model.parse_tool_calls = parse_tool_calls
-    model._lenient_parsing = True
-    return model
-
-
 def load_prompts() -> tuple[dict, str]:
     with open(PROMPTS_PATH) as f:
         templates = yaml.safe_load(f)
@@ -101,54 +47,61 @@ def load_prompts() -> tuple[dict, str]:
     return templates, instructions
 
 
-def build_agent(model=None, verbosity_level: int = 1) -> ToolCallingAgent:
+def build_agent(model=None, verbosity_level: int = 1) -> CodeAgent:
     templates, instructions = load_prompts()
-    return ToolCallingAgent(
+    return CodeAgent(
         tools=ALL_TOOLS,
-        model=lenient_tool_call_parsing(model or build_model()),
+        model=model or build_model(),
         prompt_templates=templates,
         instructions=instructions,
+        additional_authorized_imports=[],
         max_steps=MAX_STEPS,
         verbosity_level=verbosity_level,
     )
 
 
-def _trim_memory(agent: ToolCallingAgent) -> None:
+def _trim_memory(agent: CodeAgent) -> None:
     steps = agent.memory.steps
     task_starts = [i for i, s in enumerate(steps) if isinstance(s, TaskStep)]
     if len(task_starts) >= MAX_TURNS_IN_MEMORY:
         del steps[: task_starts[-(MAX_TURNS_IN_MEMORY - 1)]]
 
 
-def _format_call(call) -> str:
-    if isinstance(call.arguments, dict):
-        args = ", ".join(f"{k}={v!r}" for k, v in call.arguments.items())
-    else:
-        args = repr(call.arguments) if call.arguments else ""
-    return f"{call.name}({args})"
+def _thought(model_output) -> str:
+    """The text before the code block, without the 'Thought:' label."""
+    if not isinstance(model_output, str):
+        return ""
+    text = re.split(r"<code>|```", model_output, maxsplit=1)[0]
+    return re.sub(r"^\s*Thought:\s*", "", text).strip()
 
 
-def chat_steps(agent: ToolCallingAgent, message: str) -> Iterator[dict]:
+def chat_steps(agent: CodeAgent, message: str) -> Iterator[dict]:
     """Run one user turn, yielding what the agent does as it happens.
 
-    Yields {"kind": "step", "title", "body"} per tool-calling step, {"kind": "error", "title", "body"} per failed
-    step, and finally {"kind": "answer", "body"}. Recent turns stay in memory so clarifying questions work.
+    Yields {"kind": "step", "title", "body"} per step (title is the model's thought, body the code it ran and
+    what it printed), {"kind": "error", "title", "body"} per failed step, and finally {"kind": "answer", "body"}.
+    Recent turns stay in memory so clarifying questions work.
     """
     _trim_memory(agent)
     for event in agent.run(message, stream=True, reset=False):
         if isinstance(event, ActionStep):
-            calls = [c for c in (event.tool_calls or []) if c.name != "final_answer"]
-            thought = (event.model_output or "").strip() if isinstance(event.model_output, str) else ""
-            if calls:
-                body = (f"{thought}\n\n" if thought else "") + (event.observations or "").strip()
-                yield {"kind": "step", "title": "🛠️ " + "; ".join(_format_call(c) for c in calls), "body": body}
+            thought = _thought(event.model_output)
+            code = (event.code_action or "").strip()
+            only_answer = code.startswith("final_answer(") and code.count("\n") == 0
+            if code and not only_answer:
+                title = "🧠 " + (thought[:MAX_TITLE_CHARS] + ("…" if len(thought) > MAX_TITLE_CHARS else "")
+                                if thought else "Running code")
+                output = (event.observations or "").strip()
+                yield {"kind": "step", "title": title,
+                       "body": f"```python\n{code}\n```" + (f"\n{output}" if output else "")}
             if event.error:
-                yield {"kind": "error", "title": "💥 Error", "body": (f"{thought}\n\n" if thought else "") + str(event.error)}
+                yield {"kind": "error", "title": "💥 Error",
+                       "body": (f"{thought}\n\n" if thought else "") + str(event.error)}
         elif isinstance(event, FinalAnswerStep):
             yield {"kind": "answer", "body": str(event.output)}
 
 
-def chat(agent: ToolCallingAgent, message: str) -> str:
+def chat(agent: CodeAgent, message: str) -> str:
     """Run one user turn and return only the final reply."""
     answer = ""
     for step in chat_steps(agent, message):

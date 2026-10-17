@@ -16,7 +16,7 @@ tags:
 
 # Gym Agent
 
-Type shorthand like `bench 3x8 @135`; a smolagents `ToolCallingAgent` turns it into tool calls that write sets to Supabase.
+Type shorthand like `bench 3x8 @135`; a smolagents `CodeAgent` writes short Python that calls the tools that write sets to Supabase.
 
 Supports logging sets, undoing the last set, starting and ending sessions, "what did I do last time on X?", and "what's my PR on X?".
 
