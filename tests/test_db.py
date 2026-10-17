@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 import db
@@ -29,7 +31,7 @@ def test_add_and_undo(database):
     assert database.delete_last_set(s["id"]) is None
 
 
-def test_last_performance_excludes_active(database):
+def test_find_sets_filters(database):
     old, _ = database.start_session("")
     database.add_set(old["id"], "back_squat", 225, 5, "lbs", "")
     database.add_set(old["id"], "bench_press", 135, 8, "lbs", "")
@@ -38,10 +40,11 @@ def test_last_performance_excludes_active(database):
     cur, _ = database.start_session("")
     database.add_set(cur["id"], "back_squat", 235, 5, "lbs", "")
 
-    result = database.last_performance("back_squat", cur["id"])
-    assert result["session"]["id"] == old["id"]
-    assert [(float(s["weight"]), s["reps"]) for s in result["sets"]] == [(225, 5), (225, 4)]
-    assert database.last_performance("deadlift", cur["id"]) is None
+    squats = database.find_sets(exercise_ids=["back_squat"], exclude_session_id=cur["id"])
+    assert [(float(s["weight"]), s["reps"]) for s in squats] == [(225, 4), (225, 5)]  # newest first
+    assert len(database.find_sets(exercise_ids=["back_squat", "bench_press"])) == 4
+    assert database.find_sets(exercise_ids=["deadlift"]) == []
+    assert database.find_sets(start=db.now() + timedelta(days=1)) == []
 
 
 def test_pr_mixes_units(database):

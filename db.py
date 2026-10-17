@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 KG_TO_LBS = 2.20462
+FIND_LIMIT = 1000  # PostgREST's default max rows per request
 
 
 def now() -> datetime:
@@ -35,13 +36,13 @@ class Database:
     def delete_last_set(self, session_id: str) -> dict | None: ...
     def update_set(self, set_id: str, changes: dict) -> dict:
         """Apply changes (weight, reps, unit, note) to one set and return the updated row."""
-    def last_performance(self, exercise_id: str, exclude_session_id: str | None) -> dict | None:
-        """{"session": ..., "sets": [...]} for the most recent other session that includes the exercise."""
     def exercise_sets(self, exercise_id: str) -> list[dict]: ...
     def recent_sets(self, limit: int) -> list[dict]:
         """The user's most recent sets across all sessions, newest first."""
-    def sets_between(self, start: datetime, end: datetime) -> list[dict]:
-        """The user's sets logged in [start, end), oldest first."""
+    def find_sets(self, exercise_ids: list[str] | None = None, start: datetime | None = None,
+                  end: datetime | None = None, exclude_session_id: str | None = None,
+                  limit: int = FIND_LIMIT) -> list[dict]:
+        """The user's sets matching every given filter (logged in [start, end)), newest first."""
     # User exercises
     def add_user_exercise(self, exercise: dict) -> dict: ...
     def list_user_exercises(self) -> list[dict]: ...
@@ -108,22 +109,18 @@ class MemoryDB(Database):
         row.update(changes)
         return row
 
-    def last_performance(self, exercise_id, exclude_session_id):
-        prior = [s for s in self.sets if s["exercise_id"] == exercise_id and s["session_id"] != exclude_session_id]
-        if not prior:
-            return None
-        session_id = max(prior, key=lambda s: s["logged_at"])["session_id"]
-        session = next(s for s in self.sessions if s["id"] == session_id)
-        return {"session": session, "sets": [s for s in self.session_sets(session_id) if s["exercise_id"] == exercise_id]}
-
     def exercise_sets(self, exercise_id):
         return [s for s in self.sets if s["exercise_id"] == exercise_id]
 
     def recent_sets(self, limit):
         return sorted(self.sets, key=lambda s: s["logged_at"], reverse=True)[:limit]
 
-    def sets_between(self, start, end):
-        return sorted((s for s in self.sets if start <= s["logged_at"] < end), key=lambda s: s["logged_at"])
+    def find_sets(self, exercise_ids=None, start=None, end=None, exclude_session_id=None, limit=FIND_LIMIT):
+        rows = [s for s in self.sets
+                if (exercise_ids is None or s["exercise_id"] in exercise_ids)
+                and (start is None or s["logged_at"] >= start) and (end is None or s["logged_at"] < end)
+                and s["session_id"] != exclude_session_id]
+        return sorted(rows, key=lambda s: s["logged_at"], reverse=True)[:limit]
 
     def add_user_exercise(self, exercise):
         row = {**exercise, "user_id": self.user_id}
@@ -200,20 +197,6 @@ class SupabaseDB(Database):
         return self._rows(self.client.table("sets").update(changes).eq("id", set_id)
                           .eq("user_id", self.user_id).execute())[0]
 
-    def last_performance(self, exercise_id, exclude_session_id):
-        query = (self.client.table("sets").select("session_id").eq("user_id", self.user_id)
-                 .eq("exercise_id", exercise_id))
-        if exclude_session_id:
-            query = query.neq("session_id", exclude_session_id)
-        latest = query.order("logged_at", desc=True).limit(1).execute().data
-        if not latest:
-            return None
-        session_id = latest[0]["session_id"]
-        session = self._rows(self.client.table("sessions").select("*").eq("id", session_id).execute())[0]
-        sets = self._rows(self.client.table("sets").select("*").eq("session_id", session_id)
-                          .eq("exercise_id", exercise_id).order("logged_at").execute())
-        return {"session": session, "sets": sets}
-
     def exercise_sets(self, exercise_id):
         return self._rows(self.client.table("sets").select("*").eq("user_id", self.user_id)
                           .eq("exercise_id", exercise_id).execute())
@@ -222,10 +205,17 @@ class SupabaseDB(Database):
         return self._rows(self.client.table("sets").select("*").eq("user_id", self.user_id)
                           .order("logged_at", desc=True).limit(limit).execute())
 
-    def sets_between(self, start, end):
-        return self._rows(self.client.table("sets").select("*").eq("user_id", self.user_id)
-                          .gte("logged_at", start.isoformat()).lt("logged_at", end.isoformat())
-                          .order("logged_at").execute())
+    def find_sets(self, exercise_ids=None, start=None, end=None, exclude_session_id=None, limit=FIND_LIMIT):
+        query = self.client.table("sets").select("*").eq("user_id", self.user_id)
+        if exercise_ids is not None:
+            query = query.in_("exercise_id", list(exercise_ids))
+        if start is not None:
+            query = query.gte("logged_at", start.isoformat())
+        if end is not None:
+            query = query.lt("logged_at", end.isoformat())
+        if exclude_session_id:
+            query = query.neq("session_id", exclude_session_id)
+        return self._rows(query.order("logged_at", desc=True).limit(limit).execute())
 
     def add_user_exercise(self, exercise):
         return self.client.table("user_exercises").insert({**exercise, "user_id": self.user_id}).execute().data[0]

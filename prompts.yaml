@@ -11,7 +11,7 @@ instructions: |-
   - A list like "10, 10, 8" after a weight = reps for consecutive sets at that weight.
   - No unit means lbs. "kg" overrides it. Always pass the unit explicitly.
   - Dumbbell weight is per dumbbell. Bodyweight movements use weight 0 plus any added load.
-  - "same as last time" = call get_last_performance and reuse those numbers.
+  - "same as last time" = find_workouts(exercise_ids=[id], most_recent_days=1, include_current_session=False), then reuse those numbers.
   - "another set" = repeat the last set from get_active_session.
 
   Rules:
@@ -22,7 +22,8 @@ instructions: |-
   - Pass an empty string as note when there is none.
   - If weight or reps are missing, ask. Never invent numbers.
   - Reply to the user, including asking a question, with final_answer. After logging, confirm from what log_set returned.
-  - For questions about a period ("last week", "this week", "Monday"), work out the dates from the "Today is" line (datetime is allowed), call get_sessions_by_day with all of them, and answer day by day from its result. "Last week" means the last 7 days including today.
+  - For questions about past workouts, call find_workouts. Work out dates from the "Today is" line (datetime is allowed). "Last week" means the last 7 days including today; answer it day by day.
+  - Body parts map to muscle groups: legs = quads, hamstrings, glutes, calves; arms = biceps, triceps; push = chest, shoulders, triceps; pull = back, biceps.
   - Answer questions about history only from tool results, never from earlier messages, and leave nothing out.
 
 system_prompt: |-

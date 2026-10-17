@@ -62,16 +62,21 @@ def test_undo(database):
     assert call(tools.undo_last_set) == "Removed bench_press 135 lbs x 8."
 
 
-def test_last_performance_and_pr(database):
-    assert call(tools.get_last_performance, exercise_id="back_squat").startswith("ERROR:")
+def test_find_workouts_and_pr(database):
+    assert call(tools.find_workouts, exercise_ids=["back_squat"], most_recent_days=1) == "No matching sets found."
+    assert call(tools.find_workouts, muscle_groups=["legs"]).startswith("ERROR: unknown muscle group")
+    assert call(tools.find_workouts, exercise_ids=["nope"]).startswith("ERROR: unknown exercise_id")
+    assert call(tools.find_workouts, start_date="yesterday").startswith("ERROR:")
     assert call(tools.get_pr, exercise_id="back_squat").startswith("ERROR:")
     assert call(tools.get_pr, exercise_id="nope").startswith("ERROR: unknown")
     call(tools.log_set, exercise_id="back_squat", weight=225, reps=5, unit="lbs", note="")
     call(tools.log_set, exercise_id="back_squat", weight=110, reps=3, unit="kg", note="")
     call(tools.end_session)
     call(tools.log_set, exercise_id="back_squat", weight=230, reps=5, unit="lbs", note="")
-    last = call(tools.get_last_performance, exercise_id="back_squat")
-    assert last.startswith("Last time (") and last.endswith("back_squat: 225 lbs x 5, 110 kg x 3")
+    last = call(tools.find_workouts, exercise_ids=["back_squat"], most_recent_days=1, include_current_session=False)
+    assert last.endswith("(2 sets, 1 session): back_squat: 1×5 @225 lbs, 1×3 @110 kg")
+    legs = call(tools.find_workouts, muscle_groups=["quads"], most_recent_days=1)
+    assert legs.endswith("(3 sets, 2 sessions): back_squat: 1×5 @225 lbs, 1×3 @110 kg, 1×5 @230 lbs")
     assert call(tools.get_pr, exercise_id="back_squat").startswith("PR for back_squat: 110 kg x 3 on ")
 
 

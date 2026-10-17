@@ -241,25 +241,8 @@ def get_active_session() -> str:
     return "\n".join(lines)
 
 
-@tool
-def get_last_performance(exercise_id: str) -> str:
-    """Get the sets from the most recent earlier session that included this exercise (not the current session).
-
-    Args:
-        exercise_id: The id returned by resolve_exercise, e.g. "back_squat".
-    """
-    if exercise_id not in exercises.get_index().by_id:
-        return f"ERROR: unknown exercise_id '{exercise_id}'. Call resolve_exercise first."
-    database = db.get_db()
-    active = database.active_session()
-    result = database.last_performance(exercise_id, active["id"] if active else None)
-    if not result:
-        return f"ERROR: no earlier session includes {exercise_id}."
-    sets = ", ".join(_set_str(s, with_exercise=False) for s in result["sets"])
-    return f"Last time ({_date(result['session']['started_at'])}), {exercise_id}: {sets}"
-
-
-MAX_DAYS = 31
+MAX_EMPTY_DAYS = 31  # date ranges up to this long also list days with nothing logged
+DEFAULT_RECENT_DAYS = 7  # used when no filter narrows the search
 
 
 def _runs(sets: list[dict]) -> str:
@@ -278,44 +261,88 @@ def _runs(sets: list[dict]) -> str:
     return ", ".join(out)
 
 
+def _day_line(d: date, sets: list[dict]) -> str:
+    label = d.strftime("%a %Y-%m-%d")
+    if not sets:
+        return f"{label}: nothing logged"
+    by_exercise: dict[str, list[dict]] = {}
+    for s in sets:
+        by_exercise.setdefault(s["exercise_id"], []).append(s)
+    n_sessions = len({s["session_id"] for s in sets})
+    summary = "; ".join(f"{ex}: {_runs(ex_sets)}" for ex, ex_sets in by_exercise.items())
+    counts = f"{len(sets)} set{'s' if len(sets) > 1 else ''}, {n_sessions} session{'s' if n_sessions > 1 else ''}"
+    return f"{label} ({counts}): {summary}"
+
+
 @tool
-def get_sessions_by_day(days: list) -> str:
-    """Get what the user did on each of the given days, one line per day (days with nothing logged are included).
-    Use it for questions about a period, e.g. "what did I do last week?" or "what did I do Monday?".
+def find_workouts(muscle_groups: list | None = None, exercise_ids: list | None = None, start_date: str | None = None,
+                  end_date: str | None = None, most_recent_days: int | None = None,
+                  include_current_session: bool = True) -> str:
+    """Find logged sets, one line per day (oldest first), with each day's sets grouped by exercise.
+    Every filter is optional and they combine. Examples:
+    last time chest: find_workouts(muscle_groups=["chest"], most_recent_days=1)
+    last week: find_workouts(start_date="2026-10-11", end_date="2026-10-17")
+    same as last time on squat: find_workouts(exercise_ids=["back_squat"], most_recent_days=1, include_current_session=False)
 
     Args:
-        days: Dates as "YYYY-MM-DD" strings in the user's local time, e.g. ["2026-10-11", "2026-10-12"]. At most 31.
+        muscle_groups: Muscle groups to match, from: chest, back, shoulders, biceps, triceps, quads, hamstrings, glutes, calves, core, traps, lower back. Exercises matching muscle_groups or exercise_ids are included.
+        exercise_ids: Exercise ids from resolve_exercise, e.g. ["bench_press"].
+        start_date: First day to include, "YYYY-MM-DD" in the user's local time.
+        end_date: Last day to include, "YYYY-MM-DD" in the user's local time.
+        most_recent_days: Keep only the latest N days that have matching sets (1 = "the last time"). Without any filter, the latest 7 days are returned.
+        include_current_session: False leaves out the session that is still open.
     """
-    if not isinstance(days, (list, tuple)) or not days:
-        return 'ERROR: days must be a non-empty list of "YYYY-MM-DD" strings.'
-    if len(days) > MAX_DAYS:
-        return f"ERROR: at most {MAX_DAYS} days per call."
-    try:
-        dates = sorted({date.fromisoformat(str(d).strip()) for d in days})
-    except ValueError:
-        return 'ERROR: every day must be a "YYYY-MM-DD" string.'
+    index = exercises.get_index()
+    ids = None
+    if muscle_groups or exercise_ids:
+        ids = set()
+        if muscle_groups:
+            groups = {str(g).strip().lower() for g in muscle_groups}
+            known = {e.get("muscle_group") for e in index.by_id.values() if e.get("muscle_group")}
+            unknown = groups - known
+            if unknown:
+                return f"ERROR: unknown muscle group(s) {', '.join(sorted(unknown))}. Use: {', '.join(sorted(known))}."
+            ids |= {e_id for e_id, e in index.by_id.items() if e.get("muscle_group") in groups}
+        if exercise_ids:
+            unknown = [e for e in exercise_ids if e not in index.by_id]
+            if unknown:
+                return f"ERROR: unknown exercise_id(s) {', '.join(map(str, unknown))}. Call resolve_exercise first."
+            ids |= set(exercise_ids)
 
     tz = _tz()
-    start = datetime.combine(dates[0], time.min, tz)
-    end = datetime.combine(dates[-1] + timedelta(days=1), time.min, tz)
-    by_day: dict[date, list[dict]] = {}
-    for s in db.get_db().sets_between(start, end):
-        by_day.setdefault(s["logged_at"].astimezone(tz).date(), []).append(s)
+    try:
+        first = date.fromisoformat(start_date.strip()) if start_date else None
+        last = date.fromisoformat(end_date.strip()) if end_date else None
+    except (AttributeError, ValueError):
+        return 'ERROR: start_date and end_date must be "YYYY-MM-DD".'
+    if first and last and first > last:
+        return "ERROR: start_date is after end_date."
+    if most_recent_days is not None and most_recent_days < 1:
+        return "ERROR: most_recent_days must be 1 or more."
+    if ids is None and not first and not last and most_recent_days is None:
+        most_recent_days = DEFAULT_RECENT_DAYS
 
-    lines = []
-    for d in dates:
-        sets = by_day.get(d, [])
-        label = d.strftime("%a %Y-%m-%d")
-        if not sets:
-            lines.append(f"{label}: nothing logged")
-            continue
-        by_exercise: dict[str, list[dict]] = {}
-        for s in sets:
-            by_exercise.setdefault(s["exercise_id"], []).append(s)
-        n_sessions = len({s["session_id"] for s in sets})
-        summary = "; ".join(f"{ex}: {_runs(ex_sets)}" for ex, ex_sets in by_exercise.items())
-        lines.append(f"{label} ({len(sets)} sets, {n_sessions} session{'s' if n_sessions > 1 else ''}): {summary}")
-    return "\n".join(lines)
+    database = db.get_db()
+    exclude = None
+    if not include_current_session:
+        active = database.active_session()
+        exclude = active["id"] if active else None
+    rows = database.find_sets(
+        exercise_ids=sorted(ids) if ids is not None else None,
+        start=datetime.combine(first, time.min, tz) if first else None,
+        end=datetime.combine(last + timedelta(days=1), time.min, tz) if last else None,
+        exclude_session_id=exclude,
+    )
+
+    by_day: dict[date, list[dict]] = {}
+    for s in rows:  # newest first
+        by_day.setdefault(s["logged_at"].astimezone(tz).date(), []).append(s)
+    days = list(by_day)[:most_recent_days] if most_recent_days else list(by_day)
+    if first and last and not most_recent_days and (last - first).days < MAX_EMPTY_DAYS:
+        days = [first + timedelta(days=i) for i in range((last - first).days + 1)]
+    if not days:
+        return "No matching sets found."
+    return "\n".join(_day_line(d, sorted(by_day.get(d, []), key=lambda s: s["logged_at"])) for d in sorted(days))
 
 
 @tool
@@ -334,5 +361,5 @@ def get_pr(exercise_id: str) -> str:
 
 
 ALL_TOOLS = [resolve_exercise, add_exercise, start_session, end_session, log_set, undo_last_set, edit_set,
-             get_active_session, get_last_performance, get_sessions_by_day, get_pr]
+             get_active_session, find_workouts, get_pr]
 WRITE_TOOLS = {"add_exercise", "start_session", "end_session", "log_set", "undo_last_set", "edit_set"}
