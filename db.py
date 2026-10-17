@@ -9,6 +9,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 KG_TO_LBS = 2.20462
+# Each deployment serves one person, so a fixed owner id works; APP_USER_ID overrides it.
+DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
 FIND_LIMIT = 1000  # PostgREST's default max rows per request
 
 
@@ -231,8 +233,9 @@ _db: Database | None = None
 
 def from_env() -> Database:
     if os.environ.get("DB_BACKEND", "supabase") == "memory":
-        return MemoryDB(os.environ.get("APP_USER_ID"))
-    return SupabaseDB(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"], os.environ["APP_USER_ID"])
+        return MemoryDB(os.environ.get("APP_USER_ID") or DEFAULT_USER_ID)
+    return SupabaseDB(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"],
+                      os.environ.get("APP_USER_ID") or DEFAULT_USER_ID)
 
 
 def get_db() -> Database:
