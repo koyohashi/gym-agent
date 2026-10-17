@@ -292,3 +292,15 @@ Build the deterministic parts first and test them without a model, then add the 
 - **Hosted model:** which provider and model? Decide from eval results, and set a spending cap or budget alert on whichever account is used.
 - **Login:** does the template's `Gradio_UI.py` accept `auth`? Default is to use `gr.ChatInterface` if it does not.
 - **Starter list size:** default is about 50 common lifts.
+
+## Changes made during the build (Oct 17, 2026)
+
+These override the sections above where they conflict.
+
+- **Agent:** switched from `ToolCallingAgent` to `CodeAgent` (each step is a Thought plus a short Python block that calls the tools). The text-reply parsing workarounds written for `ToolCallingAgent` were removed. The eval comparison between the two was skipped.
+- **Model:** production uses `deepseek-ai/DeepSeek-V4-Flash-0731` through Hugging Face inference (`MODEL_BACKEND=hf`); `zai-org/GLM-5.3` is the backup. Not yet chosen by evals.
+- **Editing:** added `edit_set(set_number, weight, reps, unit, note)` for any set in the active session (`-1` = most recent), with the same checks as `log_set`. Comments or corrections about a done set edit it instead of logging a new set. This widens "undo the last set only".
+- **Schema location:** `sql/schema.sql` moved to `supabase/migrations/20261017000000_init.sql` and is applied with `supabase db push`.
+- **UI:** mobile-first full-screen chat with a sticky header: a pill button at the top left switches between the chat and a sets list (grouped by day), and a live session timer sits at the top right. The agent's steps show as collapsed messages above each reply. The sets list and timer were out of scope for v1.
+- **Hosting:** the Space is public at https://koyohashi-gym-agent.hf.space on `cpu-basic` (HF PRO), protected by the Gradio password login. Code is mirrored at github.com/koyohashi/gym-agent (private).
+- **Still open:** `evals/` not written; LLM-chosen exercise vs. fuzzy matching undecided; `APP_TIMEZONE` not set (dates show in UTC).
