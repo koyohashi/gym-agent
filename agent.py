@@ -1,11 +1,12 @@
 """Model config and agent construction, shared by app.py, tests, and the eval runner."""
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import yaml
 from smolagents import InferenceClientModel, LiteLLMModel, ToolCallingAgent
-from smolagents.memory import TaskStep
+from smolagents.memory import ActionStep, FinalAnswerStep, TaskStep
 
 from tools import ALL_TOOLS
 
@@ -56,10 +57,42 @@ def build_agent(model=None, verbosity_level: int = 1) -> ToolCallingAgent:
     )
 
 
-def chat(agent: ToolCallingAgent, message: str) -> str:
-    """Run one user turn, keeping recent turns in memory so clarifying questions work."""
+def _trim_memory(agent: ToolCallingAgent) -> None:
     steps = agent.memory.steps
     task_starts = [i for i, s in enumerate(steps) if isinstance(s, TaskStep)]
     if len(task_starts) >= MAX_TURNS_IN_MEMORY:
         del steps[: task_starts[-(MAX_TURNS_IN_MEMORY - 1)]]
-    return str(agent.run(message, reset=False))
+
+
+def _format_call(call) -> str:
+    args = call.arguments if isinstance(call.arguments, dict) else {"": call.arguments}
+    return f"{call.name}(" + ", ".join(f"{k}={v!r}" if k else repr(v) for k, v in args.items()) + ")"
+
+
+def chat_steps(agent: ToolCallingAgent, message: str) -> Iterator[dict]:
+    """Run one user turn, yielding what the agent does as it happens.
+
+    Yields {"kind": "step", "title", "body"} per tool-calling step, {"kind": "error", "title", "body"} per failed
+    step, and finally {"kind": "answer", "body"}. Recent turns stay in memory so clarifying questions work.
+    """
+    _trim_memory(agent)
+    for event in agent.run(message, stream=True, reset=False):
+        if isinstance(event, ActionStep):
+            calls = [c for c in (event.tool_calls or []) if c.name != "final_answer"]
+            thought = (event.model_output or "").strip() if isinstance(event.model_output, str) else ""
+            if calls:
+                body = (f"{thought}\n\n" if thought else "") + (event.observations or "").strip()
+                yield {"kind": "step", "title": "🛠️ " + "; ".join(_format_call(c) for c in calls), "body": body}
+            if event.error:
+                yield {"kind": "error", "title": "💥 Error", "body": (f"{thought}\n\n" if thought else "") + str(event.error)}
+        elif isinstance(event, FinalAnswerStep):
+            yield {"kind": "answer", "body": str(event.output)}
+
+
+def chat(agent: ToolCallingAgent, message: str) -> str:
+    """Run one user turn and return only the final reply."""
+    answer = ""
+    for step in chat_steps(agent, message):
+        if step["kind"] == "answer":
+            answer = step["body"]
+    return answer
