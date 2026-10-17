@@ -67,14 +67,20 @@ HEAD_JS = """
     window.location.replace(url.href);
   }
 })();
-setInterval(() => {
+// The pill's label is owned here (Gradio never changes it): elapsed time while a session runs, else "Start session".
+const renderSessionPill = () => {
   const data = document.getElementById("session-start");
   const btn = document.getElementById("session-btn");
-  if (!data || !btn || !data.dataset.start) return;
-  const s = Math.max(0, Math.floor((Date.now() - Date.parse(data.dataset.start)) / 1000));
-  const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
-  btn.textContent = (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
-}, 1000);
+  if (!btn) return;
+  let label = "Start session";
+  if (data && data.dataset.start) {
+    const s = Math.max(0, Math.floor((Date.now() - Date.parse(data.dataset.start)) / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
+    label = (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
+  }
+  if (btn.textContent !== label) btn.textContent = label;
+};
+setInterval(renderSessionPill, 250);
 </script>
 """
 
@@ -147,12 +153,12 @@ def _tz() -> ZoneInfo:
     return ZoneInfo(os.environ.get("APP_TIMEZONE", "UTC"))
 
 
-def session_state() -> tuple[str, str]:
-    """(pill label, hidden start-time element) for the current session."""
+def session_start_html() -> str:
+    """Hidden element carrying the active session's start time; the browser script renders the pill from it."""
     session = db.get_db().active_session()
     if not session:
-        return "Start session", '<span id="session-start"></span>'
-    return "0:00", f'<span id="session-start" data-start="{session["started_at"].isoformat()}"></span>'
+        return '<span id="session-start"></span>'
+    return f'<span id="session-start" data-start="{session["started_at"].isoformat()}"></span>'
 
 
 def sets_html() -> str:
@@ -203,30 +209,23 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
             shown[-1:] = [gr.ChatMessage(role="assistant", content=f"Something went wrong: {e}")]
             yield shown
 
-    def refresh_session():
-        label, start = session_state()
-        return gr.update(value=label), start
-
     def session_pressed():
         """No session: start one. Session running: ask whether to end it."""
         if db.get_db().active_session():
-            return gr.update(), gr.update(), gr.update(visible=True)
+            return gr.update(), gr.update(visible=True)
         tools.start_session("")
-        label, start = session_state()
-        return gr.update(value=label), start, gr.update(visible=False)
+        return session_start_html(), gr.update(visible=False)
 
     def end_pressed():
-        gr.Info(tools.end_session())
-        label, start = session_state()
-        return gr.update(value=label), start, gr.update(visible=False)
+        gr.Info(tools.end_session(), duration=2, title="")
+        return session_start_html(), gr.update(visible=False)
 
     with gr.Blocks(title="Gym Agent", fill_height=True) as demo:
-        label, start = session_state()
         with gr.Row(elem_id="topbar"):
             sets_btn = gr.Button("", icon=SETS_ICON, elem_id="sets-btn", scale=0)
             chat_btn = gr.Button("←", elem_id="chat-btn", scale=0, visible=False)
-            session_btn = gr.Button(label, elem_id="session-btn", scale=0)
-            session_start = gr.HTML(start, elem_id="session-start-box", padding=False)
+            session_btn = gr.Button("Start session", elem_id="session-btn", scale=0)
+            session_start = gr.HTML(session_start_html, elem_id="session-start-box", padding=False)
 
         with gr.Column(elem_id="chat-view") as chat_view:
             gr.ChatInterface(
@@ -254,14 +253,13 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
         chat_btn.click(lambda: (gr.update(visible=True), gr.update(visible=False), gr.update(visible=True),
                                 gr.update(visible=False)),
                        outputs=[chat_view, sets_view, sets_btn, chat_btn], show_progress="hidden")
-        session_btn.click(session_pressed, outputs=[session_btn, session_start, end_modal], show_progress="hidden")
+        session_btn.click(session_pressed, outputs=[session_start, end_modal], show_progress="hidden")
         end_cancel.click(lambda: gr.update(visible=False), outputs=end_modal, show_progress="hidden")
-        end_confirm.click(end_pressed, outputs=[session_btn, session_start, end_modal], show_progress="hidden")
+        end_confirm.click(end_pressed, outputs=[session_start, end_modal], show_progress="hidden")
 
         poll = gr.Timer(REFRESH_SECONDS)
-        poll.tick(refresh_session, outputs=[session_btn, session_start], show_progress="hidden")
+        poll.tick(session_start_html, outputs=session_start, show_progress="hidden")
         poll.tick(sets_html, outputs=sets_list, show_progress="hidden")
-        demo.load(refresh_session, outputs=[session_btn, session_start], show_progress="hidden")
 
     return demo
 
