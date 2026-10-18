@@ -27,6 +27,7 @@ class Database:
 
     # Sessions
     def active_session(self) -> dict | None: ...
+    def get_session(self, session_id: str) -> dict | None: ...
     def start_session(self, label: str = "") -> tuple[dict, bool]:
         """Open a session, or return the open one. Returns (session, created)."""
     def end_session(self) -> dict | None:
@@ -72,6 +73,9 @@ class MemoryDB(Database):
 
     def active_session(self):
         return next((s for s in self.sessions if s["ended_at"] is None), None)
+
+    def get_session(self, session_id):
+        return next((s for s in self.sessions if s["id"] == session_id), None)
 
     def start_session(self, label="", started_at=None):
         active = self.active_session()
@@ -153,6 +157,11 @@ class SupabaseDB(Database):
     def active_session(self):
         rows = self._rows(self.client.table("sessions").select("*").eq("user_id", self.user_id)
                           .is_("ended_at", "null").limit(1).execute())
+        return rows[0] if rows else None
+
+    def get_session(self, session_id):
+        rows = self._rows(self.client.table("sessions").select("*").eq("user_id", self.user_id)
+                          .eq("id", session_id).limit(1).execute())
         return rows[0] if rows else None
 
     def start_session(self, label=""):

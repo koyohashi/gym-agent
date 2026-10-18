@@ -346,6 +346,39 @@ def find_workouts(muscle_groups: list | None = None, exercise_ids: list | None =
 
 
 @tool
+def get_latest_session(include_current_session: bool = False) -> str:
+    """Overview of the most recent session that has sets: when it was, how long it took, and every exercise
+    with its sets, in the order done. Use it for "what did I do last session?" or "recap my last workout".
+
+    Args:
+        include_current_session: True lets the open session count as the latest. By default it is skipped,
+            so mid-workout this returns the previous session.
+    """
+    database = db.get_db()
+    exclude = None
+    if not include_current_session:
+        active = database.active_session()
+        exclude = active["id"] if active else None
+    latest = database.find_sets(exclude_session_id=exclude, limit=1)
+    if not latest:
+        return "No past sessions with sets found."
+    session = database.get_session(latest[0]["session_id"])
+    sets = database.session_sets(session["id"])
+
+    start, end = session["started_at"], session["ended_at"]
+    when = _time(start) + (f" to {end.astimezone(_tz()).strftime('%H:%M')}"
+                           f" ({round((end - start).total_seconds() / 60)} min)" if end else " (still open)")
+    by_exercise: dict[str, list[dict]] = {}
+    for s in sets:
+        by_exercise.setdefault(s["exercise_id"], []).append(s)
+    volume = sum(db.weight_in_lbs(s) * s["reps"] for s in sets)
+    lines = [f"Session {when}" + (f" ({session['label']})" if session["label"] else ""),
+             f"{len(sets)} sets across {len(by_exercise)} exercises, {volume:,.0f} lbs total volume"]
+    lines += [f"- {ex}: {_runs(ex_sets)}" for ex, ex_sets in by_exercise.items()]
+    return "\n".join(lines)
+
+
+@tool
 def get_pr(exercise_id: str) -> str:
     """Get the personal record (heaviest weight for any reps) for an exercise.
 
@@ -361,5 +394,5 @@ def get_pr(exercise_id: str) -> str:
 
 
 ALL_TOOLS = [resolve_exercise, add_exercise, start_session, end_session, log_set, undo_last_set, edit_set,
-             get_active_session, find_workouts, get_pr]
+             get_active_session, find_workouts, get_latest_session, get_pr]
 WRITE_TOOLS = {"add_exercise", "start_session", "end_session", "log_set", "undo_last_set", "edit_set"}

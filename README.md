@@ -40,6 +40,7 @@ A gym logger you text like a training partner. Type `bench 3x8 @135` between set
 | `undo` | Deletes the last set |
 | `what's my bench PR?` | Heaviest set for any reps, comparing lbs and kg |
 | `when did I last do chest?` | Finds the most recent day with any chest exercise |
+| `what did I do last session?` | Recap of your most recent workout: when, how long, every exercise's sets |
 | `what did I do last week?` | Day-by-day summary of the last 7 days, rest days included |
 | `done` | Ends the session |
 
@@ -71,6 +72,7 @@ The tools:
 | `edit_set` / `undo_last_set` | Fixes or removes sets in the current session |
 | `get_active_session` | The current session's numbered sets |
 | `find_workouts` | One filterable history query: muscle groups, exercises, date range, "the last N days" |
+| `get_latest_session` | Overview of the last session: time, duration, volume, every exercise's sets |
 | `get_pr` | Personal record for an exercise |
 
 The chat shows each agent step as a collapsible message: its reasoning, the code it ran, and what that printed.
