@@ -128,15 +128,16 @@ cp .env.example .env           # fill it in
 ```
 
 - `MODEL_BACKEND=ollama` with `MODEL_ID=qwen2.5:7b` runs against a local [Ollama](https://ollama.com) server. Small local models make more mistakes than hosted ones.
-- `DB_BACKEND=memory` skips Supabase and keeps data in memory (local only; refused on a Space).
+- `scripts/test-db.sh app` runs the app against a local Supabase stack in Docker instead of your real project, loaded with the schema and some sample workouts from `supabase/seed.sql`.
 
 ## Tests
 
 ```bash
-.venv/bin/pytest
+scripts/test-db.sh              # extra arguments go to pytest
+scripts/test-db.sh stop         # stop the containers when you're done
 ```
 
-Unit tests cover exercise matching, the database layer, and the tools, with no model involved. They run against an in-memory database; with `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set, the database tests also run against Supabase using a throwaway user id and clean up after themselves.
+Unit tests cover exercise matching, the database layer, and the tools, with no model involved. They run against a local Supabase stack (Postgres and the REST API in Docker, built from `supabase/migrations`), so they exercise the real schema without touching your project. The script starts the stack and resets it before each run; it needs Docker and the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started), and the first start downloads the images. With the stack already up, plain `.venv/bin/pytest` works too.
 
 ## Project layout
 
@@ -146,7 +147,7 @@ Unit tests cover exercise matching, the database layer, and the tools, with no m
 | `ui.py` | Mobile-first Gradio UI: chat, sets list, session timer, login |
 | `agent.py` | Model config, `build_agent()`, streaming of agent steps |
 | `tools.py` | The agent's tools |
-| `db.py` | All database access: Supabase, plus an in-memory backend |
+| `db.py` | All database access (Supabase) |
 | `exercises.py` | Exercise list loading and fuzzy matching |
 | `prompts.yaml` | System prompt and the logging rules |
 | `data/exercises.json` | About 50 common lifts with the abbreviations lifters type |

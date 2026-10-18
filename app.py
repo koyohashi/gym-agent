@@ -12,17 +12,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-REQUIRED = ["MODEL_BACKEND", "MODEL_ID", "GRADIO_USER", "GRADIO_PASSWORD"]
-REQUIRED_SUPABASE = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]
+REQUIRED = ["MODEL_BACKEND", "MODEL_ID", "GRADIO_USER", "GRADIO_PASSWORD", "SUPABASE_URL", "SUPABASE_SERVICE_KEY"]
 
 
 def check_env() -> None:
     required = list(REQUIRED)
-    if os.environ.get("DB_BACKEND", "supabase") == "memory":
-        if os.environ.get("SPACE_ID"):
-            sys.exit("DB_BACKEND=memory is for local development only; sets would be lost on restart.")
-    else:
-        required += REQUIRED_SUPABASE
     if os.environ.get("MODEL_BACKEND") == "hf":
         required.append("HF_TOKEN")
     missing = [k for k in required if not os.environ.get(k)]

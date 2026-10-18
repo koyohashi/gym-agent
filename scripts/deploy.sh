@@ -25,7 +25,7 @@ SHA="$(git rev-parse --short HEAD)"
 echo "Deploying commit $SHA: $(git log -1 --format=%s)"
 
 step "Import check (the app builds with placeholder settings)"
-env -u SPACE_ID DB_BACKEND=memory MODEL_BACKEND=ollama MODEL_ID=check GRADIO_USER=check GRADIO_PASSWORD=check \
+env -u SPACE_ID SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_SERVICE_KEY=check MODEL_BACKEND=ollama MODEL_ID=check GRADIO_USER=check GRADIO_PASSWORD=check \
   "$PY" -c "import app" >/dev/null || fail "the app does not import; not deploying."
 echo "ok"
 

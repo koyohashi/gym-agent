@@ -254,7 +254,7 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
             sets_btn = gr.Button("", icon=SETS_ICON, elem_id="sets-btn", scale=0)
             chat_btn = gr.Button("←", elem_id="chat-btn", scale=0, visible=False)
             session_btn = gr.Button("Start session", elem_id="session-btn", scale=0)
-            session_start = gr.HTML(session_start_html, elem_id="session-start-box", padding=False)
+            session_start = gr.HTML("", elem_id="session-start-box", padding=False)
 
         with gr.Column(elem_id="chat-view") as chat_view:
             gr.ChatInterface(
@@ -267,7 +267,7 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
             )
 
         with gr.Column(elem_id="sets-view", visible=False) as sets_view:
-            sets_list = gr.HTML(sets_html)
+            sets_list = gr.HTML("")
 
         with gr.Column(elem_id="end-modal", visible=False) as end_modal:
             with gr.Column(elem_id="end-card"):
@@ -286,6 +286,9 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
         end_cancel.click(lambda: gr.update(visible=False), outputs=end_modal, show_progress="hidden")
         end_confirm.click(end_pressed, outputs=[session_start, end_modal], show_progress="hidden")
 
+        # Filled on page load rather than at build time, so building the UI never touches the database.
+        demo.load(lambda: (session_start_html(), sets_html()), outputs=[session_start, sets_list],
+                  show_progress="hidden")
         poll = gr.Timer(REFRESH_SECONDS)
         poll.tick(session_start_html, outputs=session_start, show_progress="hidden")
         poll.tick(sets_html, outputs=sets_list, show_progress="hidden")

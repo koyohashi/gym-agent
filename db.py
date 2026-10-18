@@ -1,12 +1,11 @@
 """All database access. The only module that imports supabase.
 
-Two backends share one interface: SupabaseDB (production) and MemoryDB (tests, evals,
-and local runs with DB_BACKEND=memory). Rows are plain dicts with datetime timestamps.
+SupabaseDB implements the Database interface. Tests run it against a local Supabase stack
+(scripts/test-db.sh). Rows are plain dicts with datetime timestamps.
 """
 
 import os
-import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 KG_TO_LBS = 2.20462
 # Each deployment serves one person, so a fixed owner id works; APP_USER_ID overrides it.
@@ -56,85 +55,6 @@ class Database:
         if not sets:
             return None
         return max(sets, key=lambda s: (weight_in_lbs(s), s["logged_at"]))
-
-
-class MemoryDB(Database):
-    def __init__(self, user_id: str | None = None):
-        self.user_id = user_id or str(uuid.uuid4())
-        self.sessions: list[dict] = []
-        self.sets: list[dict] = []
-        self.user_exercises: list[dict] = []
-        self._last_ts = now() - timedelta(seconds=1)
-
-    def _ts(self) -> datetime:
-        # Strictly increasing timestamps keep "most recent" well defined in fast tests.
-        self._last_ts = max(now(), self._last_ts + timedelta(microseconds=1))
-        return self._last_ts
-
-    def active_session(self):
-        return next((s for s in self.sessions if s["ended_at"] is None), None)
-
-    def get_session(self, session_id):
-        return next((s for s in self.sessions if s["id"] == session_id), None)
-
-    def start_session(self, label="", started_at=None):
-        active = self.active_session()
-        if active:
-            return active, False
-        session = {"id": str(uuid.uuid4()), "user_id": self.user_id, "started_at": started_at or self._ts(),
-                   "ended_at": None, "label": label or None}
-        self.sessions.append(session)
-        return session, True
-
-    def end_session(self, ended_at=None):
-        active = self.active_session()
-        if not active:
-            return None
-        active["ended_at"] = ended_at or self._ts()
-        return {**active, "sets": self.session_sets(active["id"])}
-
-    def add_set(self, session_id, exercise_id, weight, reps, unit, note, logged_at=None):
-        row = {"id": str(uuid.uuid4()), "user_id": self.user_id, "session_id": session_id,
-               "exercise_id": exercise_id, "weight": weight, "reps": reps, "unit": unit,
-               "note": note or None, "logged_at": logged_at or self._ts()}
-        self.sets.append(row)
-        return row
-
-    def session_sets(self, session_id):
-        return sorted((s for s in self.sets if s["session_id"] == session_id), key=lambda s: s["logged_at"])
-
-    def delete_last_set(self, session_id):
-        sets = self.session_sets(session_id)
-        if not sets:
-            return None
-        self.sets.remove(sets[-1])
-        return sets[-1]
-
-    def update_set(self, set_id, changes):
-        row = next(s for s in self.sets if s["id"] == set_id)
-        row.update(changes)
-        return row
-
-    def exercise_sets(self, exercise_id):
-        return [s for s in self.sets if s["exercise_id"] == exercise_id]
-
-    def recent_sets(self, limit):
-        return sorted(self.sets, key=lambda s: s["logged_at"], reverse=True)[:limit]
-
-    def find_sets(self, exercise_ids=None, start=None, end=None, exclude_session_id=None, limit=FIND_LIMIT):
-        rows = [s for s in self.sets
-                if (exercise_ids is None or s["exercise_id"] in exercise_ids)
-                and (start is None or s["logged_at"] >= start) and (end is None or s["logged_at"] < end)
-                and s["session_id"] != exclude_session_id]
-        return sorted(rows, key=lambda s: s["logged_at"], reverse=True)[:limit]
-
-    def add_user_exercise(self, exercise):
-        row = {**exercise, "user_id": self.user_id}
-        self.user_exercises.append(row)
-        return row
-
-    def list_user_exercises(self):
-        return [{k: v for k, v in e.items() if k != "user_id"} for e in self.user_exercises]
 
 
 class SupabaseDB(Database):
@@ -241,8 +161,6 @@ _db: Database | None = None
 
 
 def from_env() -> Database:
-    if os.environ.get("DB_BACKEND", "supabase") == "memory":
-        return MemoryDB(os.environ.get("APP_USER_ID") or DEFAULT_USER_ID)
     return SupabaseDB(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"],
                       os.environ.get("APP_USER_ID") or DEFAULT_USER_ID)
 
@@ -255,6 +173,6 @@ def get_db() -> Database:
 
 
 def set_db(database: Database) -> None:
-    """Swap the backend (tests and evals use MemoryDB)."""
+    """Swap the backend (tests point it at the local Supabase stack)."""
     global _db
     _db = database

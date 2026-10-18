@@ -4,7 +4,7 @@ import exercises
 
 
 @pytest.fixture
-def index(memdb):
+def index(database):
     return exercises.get_index()
 
 
@@ -49,8 +49,8 @@ def test_unknown(index, query):
     assert index.resolve(query)["status"] == "none"
 
 
-def test_user_exercises_are_merged(memdb):
-    memdb.add_user_exercise({"id": "hack_squat", "name": "Hack Squat", "aliases": ["hack"],
+def test_user_exercises_are_merged(database):
+    database.add_user_exercise({"id": "hack_squat", "name": "Hack Squat", "aliases": ["hack"],
                              "weight_type": "machine", "muscle_group": "quads"})
     exercises.reload()
     result = exercises.get_index().resolve("hack")

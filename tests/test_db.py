@@ -73,8 +73,6 @@ def test_user_exercises(database):
 
 def test_one_active_session_index(database):
     """The unique index rejects a second open session even if the app's check is bypassed."""
-    if isinstance(database, db.MemoryDB):
-        pytest.skip("index exists only in Postgres")
     from postgrest.exceptions import APIError
 
     database.start_session("")
