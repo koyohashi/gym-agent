@@ -32,41 +32,48 @@ GREETING_ICON = "data:image/svg+xml;base64," + base64.b64encode((ASSETS / "dumbb
 BG, SURFACE, SURFACE_2, BORDER = "#1F1E1D", "#2A2927", "#33322F", "#3A3936"
 TEXT, SUBDUED, ACCENT = "#ECEAE6", "#9C9A94", "#D97757"
 
+# Dark-only design: light and dark mode get the same colors, so even the login page (which loads the theme but
+# not the app's CSS or scripts) is dark.
+_COLORS = {
+    "body_background_fill": BG,
+    "background_fill_primary": BG,
+    "background_fill_secondary": SURFACE,
+    "block_background_fill": SURFACE,
+    "block_border_color": BORDER,
+    "block_label_text_color": SUBDUED,
+    "block_title_text_color": TEXT,
+    "border_color_primary": BORDER,
+    "border_color_accent": BORDER,
+    "border_color_accent_subdued": BORDER,
+    "body_text_color": TEXT,
+    "body_text_color_subdued": SUBDUED,
+    "color_accent_soft": SURFACE_2,
+    "input_background_fill": SURFACE_2,
+    "input_background_fill_focus": SURFACE_2,
+    "input_background_fill_hover": SURFACE_2,
+    "input_border_color": BORDER,
+    "input_border_color_focus": SUBDUED,
+    "button_primary_background_fill": TEXT,
+    "button_primary_background_fill_hover": "#FFFFFF",
+    "button_primary_text_color": BG,
+    "button_secondary_background_fill": SURFACE,
+    "button_secondary_background_fill_hover": SURFACE_2,
+    "button_secondary_text_color": TEXT,
+}
 THEME = gr.themes.Base(
     primary_hue="orange",
     neutral_hue="stone",
     radius_size="lg",
     font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
 ).set(
-    body_background_fill_dark=BG,
-    background_fill_primary_dark=BG,
-    background_fill_secondary_dark=SURFACE,
-    block_background_fill_dark=BG,
-    border_color_primary_dark=BORDER,
-    body_text_color_dark=TEXT,
-    body_text_color_subdued_dark=SUBDUED,
-    color_accent_soft_dark=SURFACE_2,
-    input_background_fill_dark=SURFACE,
-    input_background_fill_focus_dark=SURFACE,
-    input_background_fill_hover_dark=SURFACE,
-    button_primary_background_fill_dark=TEXT,
-    button_primary_background_fill_hover_dark="#FFFFFF",
-    button_primary_text_color_dark=BG,
-    button_secondary_background_fill_dark=SURFACE,
-    button_secondary_background_fill_hover_dark=SURFACE_2,
-    button_secondary_text_color_dark=TEXT,
+    input_text_size="16px",  # iOS Safari zooms into any field with smaller text, including the login form
+    **_COLORS,
+    **{f"{k}_dark": v for k, v in _COLORS.items()},
 )
 
-# Always dark (the design is dark-only), and tick the session pill every second in the browser.
+# Ticks the session pill every second in the browser.
 HEAD_JS = """
 <script>
-(() => {
-  const url = new URL(window.location);
-  if (url.searchParams.get("__theme") !== "dark") {
-    url.searchParams.set("__theme", "dark");
-    window.location.replace(url.href);
-  }
-})();
 // The pill's label is owned here (Gradio never changes it): elapsed time while a session runs, else "Start session".
 const renderSessionPill = () => {
   const data = document.getElementById("session-start");
@@ -115,6 +122,18 @@ CSS = f"""
   -webkit-overflow-scrolling: touch; }}
 #chat-view .bubble-wrap, #chat-view .wrapper {{ background: transparent !important; }}
 #chat-view .gr-group, #chat-view .styler {{ background: transparent !important; border: none !important; }}
+/* Agent replies read as plain text (no bubble); the user's messages keep theirs. */
+#chatbot .message.bot {{ background: transparent !important; border: none !important; box-shadow: none !important;
+  padding: 2px 0 !important; max-width: 100% !important; }}
+/* Soft blur where messages scroll up under the header. */
+#chat-view {{ position: relative; }}
+#chat-view::before {{ content: ""; position: absolute; top: 0; left: 0; right: 0; height: 32px; z-index: 10;
+  pointer-events: none; background: linear-gradient(to bottom, {BG}, transparent);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  mask-image: linear-gradient(to bottom, black, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent); }}
+/* 16px+ text in every field: iOS Safari zooms in on focus below that (it was zooming on the login form). */
+input, textarea, select {{ font-size: 16px !important; }}
 @media (max-width: 768px) {{  /* phones: drop the chat toolbar (share, clear, copy conversation) */
   #chatbot .icon-button-wrapper.top-panel {{ display: none !important; }}
 }}
