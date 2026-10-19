@@ -27,6 +27,8 @@ class Database:
     # Sessions
     def active_session(self) -> dict | None: ...
     def get_session(self, session_id: str) -> dict | None: ...
+    def recent_sessions(self, limit: int) -> list[dict]:
+        """The user's sessions, newest first."""
     def start_session(self, label: str = "") -> tuple[dict, bool]:
         """Open a session, or return the open one. Returns (session, created)."""
     def end_session(self) -> dict | None:
@@ -83,6 +85,10 @@ class SupabaseDB(Database):
         rows = self._rows(self.client.table("sessions").select("*").eq("user_id", self.user_id)
                           .eq("id", session_id).limit(1).execute())
         return rows[0] if rows else None
+
+    def recent_sessions(self, limit):
+        return self._rows(self.client.table("sessions").select("*").eq("user_id", self.user_id)
+                          .order("started_at", desc=True).limit(limit).execute())
 
     def start_session(self, label=""):
         from postgrest.exceptions import APIError

@@ -23,7 +23,7 @@ import tools
 from agent import chat_steps
 
 MAX_SESSIONS = 20
-SETS_SHOWN = 200
+SESSIONS_SHOWN = 30
 REFRESH_SECONDS = 10
 ASSETS = Path(__file__).parent / "assets"
 SETS_ICON = str(ASSETS / "clipboard-list.svg")  # Lucide (ISC)
@@ -150,17 +150,38 @@ input, textarea, select {{ font-size: 16px !important; }}
 .greeting p {{ margin: 0; color: {SUBDUED}; font-size: 0.9rem; }}
 
 #sets-view {{ min-height: calc(100dvh - {HEADER}); padding: 0 16px 24px; }}
-.sets-title {{ margin: 4px 0 4px; font-family: Georgia, "Times New Roman", serif; font-size: 1.5rem; }}
-.sets-day {{ margin: 22px 0 8px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+.hist-title-page {{ margin: 4px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.5rem; }}
+.hist-month {{ margin: 22px 0 8px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.08em; color: {SUBDUED}; }}
-.sets-card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 18px; overflow: hidden; }}
-.set-row {{ padding: 13px 16px; border-bottom: 1px solid {BORDER}; }}
-.set-row:last-child {{ border-bottom: none; }}
-.set-main {{ display: flex; justify-content: space-between; gap: 12px; }}
-.set-name {{ font-weight: 600; }}
-.set-load {{ font-variant-numeric: tabular-nums; white-space: nowrap; color: {TEXT}; }}
-.set-note {{ margin-top: 3px; font-size: 0.85rem; color: {SUBDUED}; }}
-.sets-empty {{ margin-top: 30vh; text-align: center; color: {SUBDUED}; }}
+.hist-card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 18px; margin-bottom: 10px; }}
+.hist-card.active {{ border-color: {ACCENT}; }}
+.hist-card summary {{ list-style: none; cursor: pointer; padding: 14px 16px; }}
+.hist-card summary::-webkit-details-marker {{ display: none; }}
+.hist-head {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }}
+.hist-title {{ font-weight: 600; font-size: 1.05rem; }}
+.hist-date {{ margin-top: 2px; font-size: 0.85rem; color: {SUBDUED}; }}
+.hist-chev {{ flex: none; width: 8px; height: 8px; margin-top: 6px; border-right: 2px solid {SUBDUED};
+  border-bottom: 2px solid {SUBDUED}; transform: rotate(45deg); transition: transform 0.15s; }}
+.hist-card[open] .hist-chev {{ transform: rotate(-135deg); margin-top: 10px; }}
+.hist-stats {{ display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 10px;
+  font-size: 0.85rem; color: {SUBDUED}; font-variant-numeric: tabular-nums; }}
+.hist-live {{ color: {ACCENT}; font-weight: 600; }}
+.hist-badge {{ padding: 1px 8px; border-radius: 999px; background: {ACCENT}; color: #FFFFFF; font-size: 0.72rem;
+  font-weight: 700; }}
+.hist-summary {{ margin-top: 12px; padding-top: 10px; border-top: 1px solid {BORDER}; }}
+.hist-card[open] .hist-summary {{ display: none; }}
+.hist-line {{ display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 0.92rem; }}
+.hist-load {{ font-variant-numeric: tabular-nums; white-space: nowrap; }}
+.hist-line .hist-load {{ color: {SUBDUED}; }}
+.hist-detail {{ padding: 0 16px 8px; }}
+.hist-block {{ padding: 12px 0; border-top: 1px solid {BORDER}; }}
+.hist-block .hist-ex {{ font-weight: 600; margin-bottom: 6px; }}
+.hist-set {{ display: flex; align-items: center; gap: 12px; padding: 3px 0; }}
+.hist-num {{ width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 6px; background: {SURFACE_2}; font-size: 0.78rem; color: {SUBDUED}; }}
+.hist-note {{ margin: 0 0 4px 34px; font-size: 0.85rem; color: {SUBDUED}; }}
+.hist-summary .hist-note {{ margin: 0; }}
+.hist-empty {{ margin-top: 30vh; text-align: center; color: {SUBDUED}; }}
 
 #end-modal {{ position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, 0.6);
   align-items: center; justify-content: center; padding: 24px; }}
@@ -190,23 +211,99 @@ def session_start_html() -> str:
     return f'<span id="session-start" data-start="{session["started_at"].isoformat()}"></span>'
 
 
-def sets_html() -> str:
-    """Recent sets grouped under day headings, newest first."""
-    sets = db.get_db().recent_sets(SETS_SHOWN)
+def _pr_set_ids(sets: list[dict]) -> set[str]:
+    """Ids of each session's top set per exercise when it beats (in lbs) that exercise's best from earlier sessions.
+    Warm-up ramps within one session don't count, and neither does the first session an exercise is logged in."""
+    tops: dict[tuple, dict] = {}  # (session, exercise) -> heaviest set, in order of first appearance
+    for s in sorted(sets, key=lambda s: s["logged_at"]):
+        key = (s["session_id"], s["exercise_id"])
+        if key not in tops or db.weight_in_lbs(s) > db.weight_in_lbs(tops[key]):
+            tops[key] = s
+    best: dict[str, float] = {}
+    prs = set()
+    for (_, exercise_id), top in tops.items():
+        weight, prev = db.weight_in_lbs(top), best.get(exercise_id)
+        if prev is not None and weight > prev:
+            prs.add(top["id"])
+        if prev is None or weight > prev:
+            best[exercise_id] = weight
+    return prs
+
+
+def _load(s: dict) -> str:
+    return f'{float(s["weight"]):g} {s["unit"]} × {s["reps"]}'
+
+
+def _duration(session: dict) -> str:
+    minutes = int((session["ended_at"] - session["started_at"]).total_seconds() // 60)
+    return f"{minutes // 60}h {minutes % 60}m" if minutes >= 60 else f"{minutes}m"
+
+
+def _session_card(session: dict, sets: list[dict], pr_ids: set[str], names: dict, tz: ZoneInfo) -> str:
+    """One workout: title, date, stats and a line per exercise; tapping it expands to every set."""
+    started = session["started_at"].astimezone(tz)
+    part_of_day = "Morning" if started.hour < 12 else "Afternoon" if started.hour < 17 else "Evening"
+    title = html.escape(session.get("label") or f"{part_of_day} Workout")
+    active = not session.get("ended_at")
+
+    by_exercise: dict[str, list[dict]] = {}
+    for s in sets:
+        by_exercise.setdefault(s["exercise_id"], []).append(s)
+    unit = max(("lbs", "kg"), key=lambda u: sum(s["unit"] == u for s in sets))
+    volume = sum(db.weight_in_lbs(s) * s["reps"] for s in sets) / (db.KG_TO_LBS if unit == "kg" else 1)
+    prs = sum(s["id"] in pr_ids for s in sets)
+
+    stats = ['<span class="hist-live">In progress</span>' if active else f"<span>{_duration(session)}</span>",
+             f'<span>{len(sets)} set{"" if len(sets) == 1 else "s"}</span>']
+    if sets:
+        stats.append(f"<span>{round(volume):,} {unit}</span>")
+    if prs:
+        stats.append(f'<span class="hist-badge">{prs} PR{"" if prs == 1 else "s"}</span>')
+
+    summary, detail = [], []
+    for exercise_id, ex_sets in by_exercise.items():
+        name = html.escape(names.get(exercise_id, {}).get("name", exercise_id))
+        top = max(ex_sets, key=lambda s: (db.weight_in_lbs(s), s["reps"]))
+        summary.append(f'<div class="hist-line"><span class="hist-ex">{len(ex_sets)} × {name}</span>'
+                       f'<span class="hist-load">{_load(top)}</span></div>')
+        rows = []
+        for i, s in enumerate(ex_sets, 1):
+            badge = '<span class="hist-badge">PR</span>' if s["id"] in pr_ids else ""
+            note = f'<div class="hist-note">{html.escape(s["note"])}</div>' if s.get("note") else ""
+            rows.append(f'<div class="hist-set"><span class="hist-num">{i}</span>'
+                        f'<span class="hist-load">{_load(s)}</span>{badge}</div>{note}')
+        detail.append(f'<div class="hist-block"><div class="hist-ex">{name}</div>{"".join(rows)}</div>')
     if not sets:
-        return '<div class="sets-empty">No sets yet. Log one from the chat.</div>'
+        summary.append('<div class="hist-note">No sets yet</div>')
+
+    return (f'<details class="hist-card{" active" if active else ""}"><summary>'
+            f'<div class="hist-head"><div><div class="hist-title">{title}</div>'
+            f'<div class="hist-date">{started.strftime("%a, %b %-d · %-I:%M %p")}</div></div>'
+            f'<span class="hist-chev"></span></div>'
+            f'<div class="hist-stats">{"".join(stats)}</div>'
+            f'<div class="hist-summary">{"".join(summary)}</div></summary>'
+            f'<div class="hist-detail">{"".join(detail)}</div></details>')
+
+
+def history_html() -> str:
+    """Workout history: one card per session under month headings, newest first."""
+    database = db.get_db()
+    sessions = database.recent_sessions(SESSIONS_SHOWN)
+    all_sets = database.find_sets()  # every set, so PRs are judged against the full history
+    by_session: dict[str, list[dict]] = {}
+    for s in sorted(all_sets, key=lambda s: s["logged_at"]):
+        by_session.setdefault(s["session_id"], []).append(s)
+    sessions = [x for x in sessions if by_session.get(x["id"]) or not x.get("ended_at")]
+    if not sessions:
+        return '<div class="hist-empty">No workouts yet. Log a set from the chat.</div>'
+
     names = exercises.get_index().by_id
     tz = _tz()
-    parts = ['<div class="sets-title">Your sets</div>']
-    for day, day_sets in groupby(sets, key=lambda s: s["logged_at"].astimezone(tz).strftime("%a %b %-d")):
-        rows = []
-        for s in day_sets:
-            name = names.get(s["exercise_id"], {}).get("name", s["exercise_id"])
-            note = f'<div class="set-note">{html.escape(s["note"])}</div>' if s.get("note") else ""
-            rows.append(f'<div class="set-row"><div class="set-main"><span class="set-name">{html.escape(name)}</span>'
-                        f'<span class="set-load">{float(s["weight"]):g} {s["unit"]} × {s["reps"]}</span></div>'
-                        f"{note}</div>")
-        parts.append(f'<div class="sets-day">{day}</div><div class="sets-card">{"".join(rows)}</div>')
+    pr_ids = _pr_set_ids(all_sets)
+    parts = ['<div class="hist-title-page">History</div>']
+    for month, month_sessions in groupby(sessions, key=lambda x: x["started_at"].astimezone(tz).strftime("%B %Y")):
+        cards = "".join(_session_card(x, by_session.get(x["id"], []), pr_ids, names, tz) for x in month_sessions)
+        parts.append(f'<div class="hist-month">{month}</div>{cards}')
     return "".join(parts)
 
 
@@ -277,7 +374,7 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
                     end_confirm = gr.Button("End session", elem_id="end-confirm", min_width=0)
 
         sets_btn.click(lambda: (gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-                                gr.update(visible=True), sets_html()),
+                                gr.update(visible=True), history_html()),
                        outputs=[chat_view, sets_view, sets_btn, chat_btn, sets_list], show_progress="hidden")
         chat_btn.click(lambda: (gr.update(visible=True), gr.update(visible=False), gr.update(visible=True),
                                 gr.update(visible=False)),
@@ -286,12 +383,12 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
         end_cancel.click(lambda: gr.update(visible=False), outputs=end_modal, show_progress="hidden")
         end_confirm.click(end_pressed, outputs=[session_start, end_modal], show_progress="hidden")
 
-        # Filled on page load rather than at build time, so building the UI never touches the database.
-        demo.load(lambda: (session_start_html(), sets_html()), outputs=[session_start, sets_list],
+        # Filled on page load rather than at build time, so building the UI never touches the database. History isn't
+        # polled (a refresh would collapse an open card); it re-renders each time the sets button opens it.
+        demo.load(lambda: (session_start_html(), history_html()), outputs=[session_start, sets_list],
                   show_progress="hidden")
         poll = gr.Timer(REFRESH_SECONDS)
         poll.tick(session_start_html, outputs=session_start, show_progress="hidden")
-        poll.tick(sets_html, outputs=sets_list, show_progress="hidden")
 
     return demo
 
