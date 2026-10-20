@@ -5,12 +5,14 @@ SupabaseDB implements the Database interface. Tests run it against a local Supab
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 KG_TO_LBS = 2.20462
 # Each deployment serves one person, so a fixed owner id works; APP_USER_ID overrides it.
 DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
 FIND_LIMIT = 1000  # PostgREST's default max rows per request
+# An open session with no new set for this long is ended (at its last set) the next time anything looks it up.
+SESSION_IDLE_LIMIT = timedelta(hours=2)
 
 
 def now() -> datetime:
@@ -25,7 +27,8 @@ class Database:
     user_id: str
 
     # Sessions
-    def active_session(self) -> dict | None: ...
+    def active_session(self) -> dict | None:
+        """The open session, or None. A session idle past SESSION_IDLE_LIMIT is ended at its last activity first."""
     def get_session(self, session_id: str) -> dict | None: ...
     def recent_sessions(self, limit: int) -> list[dict]:
         """The user's sessions, newest first."""
@@ -79,7 +82,17 @@ class SupabaseDB(Database):
     def active_session(self):
         rows = self._rows(self.client.table("sessions").select("*").eq("user_id", self.user_id)
                           .is_("ended_at", "null").limit(1).execute())
-        return rows[0] if rows else None
+        if not rows:
+            return None
+        session = rows[0]
+        last_set = self._rows(self.client.table("sets").select("logged_at").eq("session_id", session["id"])
+                              .order("logged_at", desc=True).limit(1).execute())
+        last_activity = last_set[0]["logged_at"] if last_set else session["started_at"]
+        if now() - last_activity > SESSION_IDLE_LIMIT:
+            self.client.table("sessions").update({"ended_at": last_activity.isoformat()}) \
+                .eq("id", session["id"]).is_("ended_at", "null").execute()
+            return None
+        return session
 
     def get_session(self, session_id):
         rows = self._rows(self.client.table("sessions").select("*").eq("user_id", self.user_id)
