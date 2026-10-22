@@ -2,8 +2,8 @@
 
 Header: a round icon button (top left) toggles between the chat and the sets list; a pill (top right) starts a
 session, then shows its running time, and opens an "End session" dialog when tapped. One agent per browser session
-so clarifying questions keep context. While the agent works, its steps are tucked into one collapsed box (an
-animated "Working" title) above its reply; tapping the box expands them.
+so clarifying questions keep context. While the agent works, its steps are tucked into one collapsed line (an
+animated "Working", then "Worked for 30s") above its reply; tapping it expands them.
 """
 
 import base64
@@ -133,12 +133,19 @@ CSS = f"""
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   mask-image: linear-gradient(to bottom, black, transparent);
   -webkit-mask-image: linear-gradient(to bottom, black, transparent); }}
-/* The agent's steps: one rounded box, collapsed, whose title animates while it works. */
-#chatbot .thought-group {{ background: {SURFACE} !important; border: 1px solid {BORDER} !important;
-  border-radius: 16px !important; padding: 6px 12px !important; }}
-#chatbot .thought-group .thought-group {{ background: transparent !important; border: none !important;
+/* The agent's steps: no box, just a subdued "Worked for 30s ›" line (› turns down when open), then a thin rule
+   before the reply. Gradio's own arrow on the left is hidden in favour of the chevron after the title. */
+#chatbot .thought-group {{ background: transparent !important; border: none !important; border-radius: 0 !important;
+  padding: 0 0 8px !important; margin: 0 0 10px !important; border-bottom: 1px solid {BORDER} !important; }}
+#chatbot .thought-group .thought-group {{ border-bottom: none !important; margin: 0 !important;
   padding: 2px 0 !important; }}
-#chatbot .thought-group .title {{ color: {SUBDUED}; }}
+#chatbot .thought-group .arrow {{ display: none !important; }}
+#chatbot .thought-group .title {{ color: {SUBDUED}; width: auto; gap: 8px; }}
+#chatbot .thought-group .title::after {{ content: ""; flex: none; width: 6px; height: 6px;
+  border-right: 1.5px solid {SUBDUED}; border-bottom: 1.5px solid {SUBDUED}; transform: rotate(-45deg);
+  transition: transform 0.15s; }}
+#chatbot .thought-group .title.expanded::after {{ transform: rotate(45deg); }}
+#chatbot .thought-group .content {{ margin-left: 0 !important; }}
 .working {{ display: inline-flex; align-items: baseline; gap: 3px; color: {TEXT};
   background: linear-gradient(90deg, {SUBDUED} 0%, {TEXT} 50%, {SUBDUED} 100%) 0 0 / 200% 100%;
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
@@ -327,6 +334,11 @@ def history_html() -> str:
     return "".join(parts)
 
 
+def _elapsed(seconds: float) -> str:
+    s = max(1, round(seconds))
+    return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
+
+
 def build_ui(make_agent: Callable) -> gr.Blocks:
     agents: OrderedDict = OrderedDict()
 
@@ -352,8 +364,8 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
                 if step["kind"] == "answer":
                     steps = len(shown) - 1
                     if steps:
-                        work.metadata = {"id": work_id, "status": "done", "duration": round(time.monotonic() - started),
-                                         "title": f"Worked through {steps} step{'s' if steps > 1 else ''}"}
+                        work.metadata = {"id": work_id, "status": "done",
+                                         "title": f"Worked for {_elapsed(time.monotonic() - started)}"}
                     else:
                         shown.remove(work)
                     shown.append(gr.ChatMessage(role="assistant", content=step["body"]))
