@@ -323,7 +323,7 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
                                                       metadata={"title": "🤔 Thinking…", "status": "pending"})]
         yield shown
         try:
-            for step in chat_steps(agents[key], message):
+            for step in chat_steps(agents[key], message, session_id=key):
                 if step["kind"] == "answer":
                     shown[-1:] = [gr.ChatMessage(role="assistant", content=step["body"])]
                 else:

@@ -1,8 +1,11 @@
 """Model config and agent construction, shared by app.py, tests, and the eval runner."""
 
 import os
+import queue
 import re
+import threading
 from collections.abc import Iterator
+from contextlib import nullcontext
 from pathlib import Path
 
 import yaml
@@ -40,6 +43,28 @@ def build_model(backend: str | None = None, model_id: str | None = None):
     raise ValueError(f"Unknown MODEL_BACKEND '{backend}' (expected ollama, hf, or litellm)")
 
 
+def setup_tracing() -> bool:
+    """Send agent traces to Langfuse when LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set. Returns whether it's on."""
+    if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
+        return False
+    os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", "production" if os.environ.get("SPACE_ID") else "development")
+    from langfuse import get_client
+    from openinference.instrumentation.smolagents import SmolagentsInstrumentor
+
+    get_client()  # reads LANGFUSE_* and registers the OpenTelemetry exporter the instrumentor writes to
+    SmolagentsInstrumentor().instrument()
+    return True
+
+
+def _trace_attributes(session_id: str | None):
+    """Groups a turn's trace under its chat session in Langfuse (no-op when tracing is off)."""
+    if not os.environ.get("LANGFUSE_PUBLIC_KEY"):
+        return nullcontext()
+    from langfuse import propagate_attributes
+
+    return propagate_attributes(session_id=session_id, user_id=os.environ.get("GRADIO_USER"), trace_name="chat turn")
+
+
 def load_prompts() -> tuple[dict, str]:
     with open(PROMPTS_PATH) as f:
         templates = yaml.safe_load(f)
@@ -75,15 +100,40 @@ def _thought(model_output) -> str:
     return re.sub(r"^\s*Thought:\s*", "", text).strip()
 
 
-def chat_steps(agent: CodeAgent, message: str) -> Iterator[dict]:
+_DONE = object()
+
+
+def _run_events(agent: CodeAgent, task: str, session_id: str | None) -> Iterator:
+    """agent.run's stream, produced on one thread so the turn's trace context holds for every step.
+    (Gradio advances generators from changing worker threads, which would split a trace into pieces.)"""
+    events: queue.Queue = queue.Queue()
+
+    def run():
+        try:
+            with _trace_attributes(session_id):
+                for event in agent.run(task, stream=True, reset=False):
+                    events.put(event)
+        except Exception as e:
+            events.put(e)
+        finally:
+            events.put(_DONE)
+
+    threading.Thread(target=run, daemon=True).start()
+    while (event := events.get()) is not _DONE:
+        if isinstance(event, Exception):
+            raise event
+        yield event
+
+
+def chat_steps(agent: CodeAgent, message: str, session_id: str | None = None) -> Iterator[dict]:
     """Run one user turn, yielding what the agent does as it happens.
 
     Yields {"kind": "step", "title", "body"} per step (title is the model's thought, body the code it ran and
     what it printed), {"kind": "error", "title", "body"} per failed step, and finally {"kind": "answer", "body"}.
-    Recent turns stay in memory so clarifying questions work.
+    Recent turns stay in memory so clarifying questions work. session_id groups the turn's trace in Langfuse.
     """
     _trim_memory(agent)
-    for event in agent.run(f"{today_line()}\n{message}", stream=True, reset=False):
+    for event in _run_events(agent, f"{today_line()}\n{message}", session_id):
         if isinstance(event, ActionStep):
             thought = _thought(event.model_output)
             code = (event.code_action or "").strip()

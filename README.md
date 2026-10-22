@@ -111,6 +111,8 @@ You need a [Supabase](https://supabase.com) project (the free tier works) and a 
    | `GRADIO_USER` / `GRADIO_PASSWORD` | **secret** | The login for your app; use a strong password |
    | `APP_TIMEZONE` | variable | Your timezone, e.g. `America/New_York` (defaults to UTC) |
    | `APP_USER_ID` | optional | Leave unset |
+   | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | optional **secret** | Langfuse project keys; with both set, every chat turn is traced (steps, code, tool calls, tokens) |
+   | `LANGFUSE_BASE_URL` | optional variable | Your Langfuse region, e.g. `https://us.cloud.langfuse.com` (defaults to the EU cloud) |
 
    `app.py` refuses to start and names anything that's missing.
 

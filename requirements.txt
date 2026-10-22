@@ -4,3 +4,5 @@ supabase==2.33.0
 rapidfuzz==3.14.6
 PyYAML==6.0.3
 python-dotenv==1.2.4
+langfuse==5.0.4
+openinference-instrumentation-smolagents==0.1.43

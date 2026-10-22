@@ -33,9 +33,10 @@ if spaces is not None:
 
 check_env()
 
-from agent import build_agent, build_model  # noqa: E402
+from agent import build_agent, build_model, setup_tracing  # noqa: E402
 from ui import build_ui, launch  # noqa: E402
 
+setup_tracing()
 model = build_model()
 demo = build_ui(lambda: build_agent(model=model))
 
