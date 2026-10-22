@@ -4,8 +4,9 @@
 #   scripts/deploy.sh            # koyohashi/gym-agent-personal (private, the real app) and koyohashi/gym-agent (public template)
 #   HF_SPACES="you/gym-agent" scripts/deploy.sh
 #
-# A configured Space must answer 401 (login required). An unconfigured one, like the public template,
-# must show the setup page instead. Private Spaces are checked with your Hugging Face token.
+# A private Space must be hidden (404) from anyone not logged in to Hugging Face; past that (checked with your
+# token) it may skip the app login. A public Space must answer 401 (app login required), or show the setup page
+# if it isn't configured, like the public template.
 #
 # Refuses to run with uncommitted changes, so the Space always matches a GitHub commit.
 set -euo pipefail
@@ -66,12 +67,14 @@ if stage != "RUNNING":
     sys.exit(f"Space is {stage}; read the logs with: hf spaces logs {space} --tail 100")
 EOF
 
-step "Checking that $SPACE requires login (or shows the setup page)"
+step "Checking who can open $SPACE"
 HOST="$(echo "$SPACE" | tr '[:upper:]' '[:lower:]' | tr '/_.' '---')"
 URLS="$URLS
 App:    https://$HOST.hf.space"
 HF_AUTH=()
+PRIVATE=""
 if "$PY" -I -c "import sys; from huggingface_hub import HfApi; sys.exit(0 if HfApi().space_info(sys.argv[1]).private else 1)" "$SPACE"; then
+  PRIVATE=1
   HF_AUTH=(-H "Authorization: Bearer $("$PY" -I -c "from huggingface_hub import get_token; print(get_token())")")
   CODE="$(curl -s -o /dev/null -w '%{http_code}' "https://$HOST.hf.space/config")"
   echo "private Space, /config without a Hugging Face login: $CODE"
@@ -82,8 +85,12 @@ CODE="$(tail -n1 <<<"$CONFIG")"
 echo "/config without app login: $CODE"
 if [ "$CODE" = "200" ] && grep -q "Gym Agent needs setup" <<<"$CONFIG"; then
   echo "not configured: showing the setup page"
+elif [ "$CODE" = "401" ]; then
+  echo "app login required"
+elif [ "$CODE" = "200" ] && [ -n "$PRIVATE" ]; then
+  echo "no app login; only your Hugging Face account can open it"
 else
-  [ "$CODE" = "401" ] || fail "expected 401 (login required) or the setup page, got $CODE."
+  fail "expected 401 (app login required) or the setup page, got $CODE."
 fi
 }
 

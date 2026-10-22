@@ -1,4 +1,4 @@
-"""Mobile-first Gradio UI with password login, styled after a dark, minimal chat app.
+"""Mobile-first Gradio UI with an optional password login, styled after a dark, minimal chat app.
 
 Header: a round icon button (top left) toggles between the chat and the sets list; a pill (top right) starts a
 session, then shows its running time, and opens an "End session" dialog when tapped. One agent per browser session
@@ -429,6 +429,6 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
     return demo
 
 
-def launch(demo: gr.Blocks, user: str, password: str) -> None:
-    demo.launch(auth=(user, password), ssr_mode=False, theme=THEME, css=CSS, head=HEAD_JS,
+def launch(demo: gr.Blocks, user: str | None, password: str | None) -> None:
+    demo.launch(auth=(user, password) if user and password else None, ssr_mode=False, theme=THEME, css=CSS, head=HEAD_JS,
                 footer_links=[], pwa=True)

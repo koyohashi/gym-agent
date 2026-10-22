@@ -98,8 +98,8 @@ You need a [Supabase](https://supabase.com) project (the free tier works) and a 
    This creates `sessions`, `sets`, and `user_exercises` with row-level security on and no public policies, so the public anon key can read nothing.
 
 2. **Copy the Space.** [**Duplicate the template Space**](https://huggingface.co/spaces/koyohashi/gym-agent?duplicate=true) into your account. It holds no secrets, so nothing of anyone else's comes with it, and your copy bills only you.
-   - **Public** (default): reachable from any browser; your app password protects it.
-   - **Private**: hidden from anyone not logged in to Hugging Face as you, behind your app password as well. Stay logged in to huggingface.co on your phone to open it.
+   - **Public** (default): reachable from any browser, so it needs an app login (`GRADIO_USER` / `GRADIO_PASSWORD`).
+   - **Private**: hidden from anyone not logged in to Hugging Face as you, so no app login is needed. Stay logged in to huggingface.co on your phone to open it.
 
 3. **Set its secrets and variables** (Space → Settings → Variables and secrets):
 
@@ -110,7 +110,7 @@ You need a [Supabase](https://supabase.com) project (the free tier works) and a 
    | `MODEL_BACKEND` | variable | `hf` (copied from the template) |
    | `MODEL_ID` | variable | e.g. `deepseek-ai/DeepSeek-V4-Flash-0731` (copied from the template) |
    | `HF_TOKEN` | **secret** | A token with "Make calls to Inference Providers" |
-   | `GRADIO_USER` / `GRADIO_PASSWORD` | **secret** | The login for your app; use a strong password |
+   | `GRADIO_USER` / `GRADIO_PASSWORD` | **secret** (public Spaces) | The login for your app; use a strong password. A private Space can leave these unset |
    | `APP_TIMEZONE` | variable | Your timezone, e.g. `America/New_York` (defaults to UTC) |
    | `APP_USER_ID` | optional | Leave unset |
    | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | optional **secret** | Langfuse project keys; with both set, every chat turn is traced (steps, code, tool calls, tokens) |

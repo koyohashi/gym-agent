@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy the gym agent - commit the changes, push to GitHub, sync the Hugging Face Space, and verify it is running and still requires login. Use when the user asks to deploy, ship, release, push to the Space, or sync GitHub and the Space.
+description: Deploy the gym agent - commit the changes, push to GitHub, sync the Hugging Face Space, and verify each is running and not open to strangers. Use when the user asks to deploy, ship, release, push to the Space, or sync GitHub and the Space.
 ---
 
 # Deploy
@@ -31,7 +31,7 @@ By default it deploys to `koyohashi/gym-agent-personal` (private, the real app) 
 2. Checks that the app imports with placeholder settings.
 3. Pushes to GitHub.
 4. For each Space: uploads (excluding `.venv`, `__pycache__`, `.env`, `.git`, `.pytest_cache`, `supabase/.temp`, `supabase/.branches`, `.claude`) with the commit message `Sync with github.com/<repo>@<sha>`, then waits until it is `RUNNING` (up to 10 minutes).
-5. Checks each Space's `/config`: a private Space must return 404 without a Hugging Face login; then (with your HF token for private Spaces) it must return 401, so the app login protects it, or show the setup page if the Space has no config (the template).
+5. Checks each Space's `/config`: a private Space must return 404 without a Hugging Face login, and past that (with your HF token) may skip the app login. A public Space must return 401, so the app login protects it, or show the setup page if it has no config (the template).
 
 It needs the `hf` CLI logged in (`hf auth whoami`), `gh`/git push access, and the project's `.venv`.
 
