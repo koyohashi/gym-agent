@@ -2,12 +2,14 @@
 
 Header: a round icon button (top left) toggles between the chat and the sets list; a pill (top right) starts a
 session, then shows its running time, and opens an "End session" dialog when tapped. One agent per browser session
-so clarifying questions keep context. Each tool call the agent makes is shown as a collapsed message above its reply.
+so clarifying questions keep context. While the agent works, its steps are tucked into one collapsed box (an
+animated "Working" title) above its reply; tapping the box expands them.
 """
 
 import base64
 import html
 import os
+import time
 from collections import OrderedDict
 from collections.abc import Iterator
 from itertools import groupby
@@ -132,6 +134,23 @@ CSS = f"""
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   mask-image: linear-gradient(to bottom, black, transparent);
   -webkit-mask-image: linear-gradient(to bottom, black, transparent); }}
+/* The agent's steps: one rounded box, collapsed, whose title animates while it works. */
+#chatbot .thought-group {{ background: {SURFACE} !important; border: 1px solid {BORDER} !important;
+  border-radius: 16px !important; padding: 6px 12px !important; }}
+#chatbot .thought-group .thought-group {{ background: transparent !important; border: none !important;
+  padding: 2px 0 !important; }}
+#chatbot .thought-group .title {{ color: {SUBDUED}; }}
+.working {{ display: inline-flex; align-items: baseline; gap: 3px; color: {TEXT};
+  background: linear-gradient(90deg, {SUBDUED} 0%, {TEXT} 50%, {SUBDUED} 100%) 0 0 / 200% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  animation: working-shimmer 2s linear infinite; }}
+.working i {{ width: 5px; height: 5px; border-radius: 50%; background: {ACCENT}; margin-left: 1px;
+  animation: working-hop 1.1s ease-in-out infinite; }}
+.working i:nth-of-type(2) {{ animation-delay: 0.15s; }}
+.working i:nth-of-type(3) {{ animation-delay: 0.3s; }}
+@keyframes working-shimmer {{ to {{ background-position: -200% 0; }} }}
+@keyframes working-hop {{ 0%, 60%, 100% {{ transform: translateY(0); opacity: 0.4; }}
+  30% {{ transform: translateY(-5px); opacity: 1; }} }}
 /* 16px+ text in every field: iOS Safari zooms in on focus below that (it was zooming on the login form). */
 input, textarea, select {{ font-size: 16px !important; }}
 @media (max-width: 768px) {{  /* phones: drop the chat toolbar (share, clear, copy conversation) */
@@ -194,6 +213,8 @@ input, textarea, select {{ font-size: 16px !important; }}
 #end-cancel {{ background: transparent !important; border: 1px solid {BORDER} !important; color: {TEXT} !important; }}
 #end-cancel, #end-confirm {{ border-radius: 999px !important; min-width: 0 !important; height: 46px; }}
 """
+
+WORKING = '<span class="working">Working<i></i><i></i><i></i></span>'
 
 GREETING = (f'<div class="greeting"><img src="{GREETING_ICON}" alt=""><h2>Let\'s lift</h2>'
             "<p>bench 3x8 @135 · undo · what's my bench PR?</p></div>")
@@ -319,20 +340,35 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
                 agents.popitem(last=False)
         agents.move_to_end(key)
 
-        shown: list[gr.ChatMessage] = [gr.ChatMessage(role="assistant", content="",
-                                                      metadata={"title": "🤔 Thinking…", "status": "pending"})]
+        # Steps nest under one box. It's "done" from the start because Gradio auto-expands pending boxes; the
+        # animated title is what shows it's still working.
+        work_id = f"work-{time.time_ns()}"  # unique per turn, so steps never nest under an earlier turn's box
+        work = gr.ChatMessage(role="assistant", content="",
+                              metadata={"id": work_id, "title": WORKING, "status": "done"})
+        shown: list[gr.ChatMessage] = [work]
+        started = time.monotonic()
         yield shown
         try:
             for step in chat_steps(agents[key], message, session_id=key):
                 if step["kind"] == "answer":
-                    shown[-1:] = [gr.ChatMessage(role="assistant", content=step["body"])]
+                    steps = len(shown) - 1
+                    if steps:
+                        work.metadata = {"id": work_id, "status": "done", "duration": round(time.monotonic() - started),
+                                         "title": f"Worked through {steps} step{'s' if steps > 1 else ''}"}
+                    else:
+                        shown.remove(work)
+                    shown.append(gr.ChatMessage(role="assistant", content=step["body"]))
                 else:
-                    shown.insert(len(shown) - 1, gr.ChatMessage(
+                    shown.append(gr.ChatMessage(
                         role="assistant", content=step["body"] or "(no output)",
-                        metadata={"title": step["title"], "status": "done"}))
+                        metadata={"parent_id": work_id, "title": step["title"], "status": "done"}))
                 yield shown
         except Exception as e:  # keep the chat usable if the model provider errors
-            shown[-1:] = [gr.ChatMessage(role="assistant", content=f"Something went wrong: {e}")]
+            if len(shown) == 1:
+                shown.remove(work)
+            else:
+                work.metadata = {"id": work_id, "status": "done", "title": "Stopped"}
+            shown.append(gr.ChatMessage(role="assistant", content=f"Something went wrong: {e}"))
             yield shown
 
     def session_pressed():
