@@ -1,4 +1,4 @@
-"""Mobile-first Gradio UI with an optional password login, styled after a dark, minimal chat app.
+"""Mobile-first Gradio UI, styled after a dark, minimal chat app.
 
 Header: a round icon button (top left) toggles between the chat and the sets list; a pill (top right) starts a
 session, then shows its running time, and opens an "End session" dialog when tapped. One agent per browser session
@@ -34,8 +34,7 @@ GREETING_ICON = "data:image/svg+xml;base64," + base64.b64encode((ASSETS / "dumbb
 BG, SURFACE, SURFACE_2, BORDER = "#1F1E1D", "#2A2927", "#33322F", "#3A3936"
 TEXT, SUBDUED, ACCENT = "#ECEAE6", "#9C9A94", "#D97757"
 
-# Dark-only design: light and dark mode get the same colors, so even the login page (which loads the theme but
-# not the app's CSS or scripts) is dark.
+# Dark-only design: light and dark mode get the same colors.
 _COLORS = {
     "body_background_fill": BG,
     "background_fill_primary": BG,
@@ -68,7 +67,7 @@ THEME = gr.themes.Base(
     radius_size="lg",
     font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
 ).set(
-    input_text_size="16px",  # iOS Safari zooms into any field with smaller text, including the login form
+    input_text_size="16px",  # iOS Safari zooms into any field with smaller text
     **_COLORS,
     **{f"{k}_dark": v for k, v in _COLORS.items()},
 )
@@ -429,6 +428,6 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
     return demo
 
 
-def launch(demo: gr.Blocks, user: str | None, password: str | None) -> None:
-    demo.launch(auth=(user, password) if user and password else None, ssr_mode=False, theme=THEME, css=CSS, head=HEAD_JS,
+def launch(demo: gr.Blocks) -> None:
+    demo.launch(ssr_mode=False, theme=THEME, css=CSS, head=HEAD_JS,
                 footer_links=[], pwa=True)

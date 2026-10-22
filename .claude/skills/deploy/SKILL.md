@@ -31,7 +31,7 @@ By default it deploys to `koyohashi/gym-agent-personal` (private, the real app) 
 2. Checks that the app imports with placeholder settings.
 3. Pushes to GitHub.
 4. For each Space: uploads (excluding `.venv`, `__pycache__`, `.env`, `.git`, `.pytest_cache`, `supabase/.temp`, `supabase/.branches`, `.claude`) with the commit message `Sync with github.com/<repo>@<sha>`, then waits until it is `RUNNING` (up to 10 minutes).
-5. Checks each Space's `/config`: a private Space must return 404 without a Hugging Face login, and past that (with your HF token) may skip the app login. A public Space must return 401, so the app login protects it, or show the setup page if it has no config (the template).
+5. Checks each Space's `/config`. The app has no login of its own, so a private Space must return 404 without a Hugging Face login and serve the app with your HF token; a public Space (the template) must show the setup page, never the app.
 
 It needs the `hf` CLI logged in (`hf auth whoami`), `gh`/git push access, and the project's `.venv`.
 
@@ -40,6 +40,6 @@ It needs the `hf` CLI logged in (`hf auth whoami`), `gh`/git push access, and th
 Tell the user the commit SHA and subject, that GitHub and both Spaces are updated, and the check results. If a step failed, say which one, then:
 
 - Space not `RUNNING`: read `hf spaces logs <space> --tail 100`, find the first error, and report it.
-- `/config` check failed: stop and tell the user. The app may be reachable without the password, or the private Space may be public.
+- `/config` check failed: stop and tell the user. If a public Space is serving the app, anyone can use it; it needs to go private right away.
 
 Pushing to GitHub and the Space is visible to everyone who can see them; deploy only when the user asked for it.

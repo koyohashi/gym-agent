@@ -4,9 +4,8 @@
 #   scripts/deploy.sh            # koyohashi/gym-agent-personal (private, the real app) and koyohashi/gym-agent (public template)
 #   HF_SPACES="you/gym-agent" scripts/deploy.sh
 #
-# A private Space must be hidden (404) from anyone not logged in to Hugging Face; past that (checked with your
-# token) it may skip the app login. A public Space must answer 401 (app login required), or show the setup page
-# if it isn't configured, like the public template.
+# The app has no login of its own, so a private Space must be hidden (404) from anyone not logged in to Hugging
+# Face, and a public Space (like the template) must show the setup page instead of the app.
 #
 # Refuses to run with uncommitted changes, so the Space always matches a GitHub commit.
 set -euo pipefail
@@ -29,7 +28,7 @@ SHA="$(git rev-parse --short HEAD)"
 echo "Deploying commit $SHA: $(git log -1 --format=%s)"
 
 step "Import check (the app builds with placeholder settings)"
-env -u SPACE_ID SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_SERVICE_KEY=check MODEL_BACKEND=ollama MODEL_ID=check GRADIO_USER=check GRADIO_PASSWORD=check \
+env -u SPACE_ID SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_SERVICE_KEY=check MODEL_BACKEND=ollama MODEL_ID=check \
   "$PY" -c "import app" >/dev/null || fail "the app does not import; not deploying."
 echo "ok"
 
@@ -37,7 +36,7 @@ step "Pushing to GitHub"
 git push
 ORIGIN="$(git remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
 
-# Upload one Space, wait for it to start, and check its login. (Body unindented so the heredoc stays at column 0.)
+# Upload one Space, wait for it to start, and check who can open it. (Body unindented so the heredoc stays at column 0.)
 deploy_space() {
 SPACE="$1"
 step "Uploading to the Space $SPACE"
@@ -82,15 +81,15 @@ if "$PY" -I -c "import sys; from huggingface_hub import HfApi; sys.exit(0 if HfA
 fi
 CONFIG="$(curl -s ${HF_AUTH[@]+"${HF_AUTH[@]}"} -w '\n%{http_code}' "https://$HOST.hf.space/config")"
 CODE="$(tail -n1 <<<"$CONFIG")"
-echo "/config without app login: $CODE"
-if [ "$CODE" = "200" ] && grep -q "Gym Agent needs setup" <<<"$CONFIG"; then
-  echo "not configured: showing the setup page"
-elif [ "$CODE" = "401" ]; then
-  echo "app login required"
-elif [ "$CODE" = "200" ] && [ -n "$PRIVATE" ]; then
-  echo "no app login; only your Hugging Face account can open it"
+SETUP="$(grep -q "Gym Agent needs setup" <<<"$CONFIG" && echo 1 || true)"
+echo "/config${PRIVATE:+ with your Hugging Face login}: $CODE${SETUP:+ (setup page)}"
+[ "$CODE" = "200" ] || fail "expected 200, got $CODE."
+if [ -n "$PRIVATE" ]; then
+  [ -z "$SETUP" ] || fail "the private Space shows the setup page; read it at https://$HOST.hf.space for what's missing."
+  echo "the app is running; only your Hugging Face account can open it"
 else
-  fail "expected 401 (app login required) or the setup page, got $CODE."
+  [ -n "$SETUP" ] || fail "a public Space is serving the app with no login. Make it private now."
+  echo "public: showing the setup page, not the app"
 fi
 }
 

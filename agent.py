@@ -62,7 +62,7 @@ def _trace_attributes(session_id: str | None):
         return nullcontext()
     from langfuse import propagate_attributes
 
-    return propagate_attributes(session_id=session_id, user_id=os.environ.get("GRADIO_USER"), trace_name="chat turn")
+    return propagate_attributes(session_id=session_id, user_id=os.environ.get("SPACE_AUTHOR_NAME"), trace_name="chat turn")
 
 
 def load_prompts() -> tuple[dict, str]:
