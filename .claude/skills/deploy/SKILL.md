@@ -25,22 +25,21 @@ Commit with a message that says what changed and why (subject line under ~70 cha
 scripts/deploy.sh
 ```
 
-Set `HF_SPACE=<owner>/<space>` to deploy somewhere other than `koyohashi/gym-agent`. The script:
+By default it deploys to `koyohashi/gym-agent-personal` (private, the real app) and `koyohashi/gym-agent` (public template with no secrets, which shows a setup page). Set `HF_SPACES="<owner>/<space> ..."` to deploy elsewhere. The script:
 
 1. Refuses to run with uncommitted changes.
 2. Checks that the app imports with placeholder settings.
 3. Pushes to GitHub.
-4. Uploads to the Space (excluding `.venv`, `__pycache__`, `.env`, `.git`, `.pytest_cache`, `supabase/.temp`, `.claude`), with the commit message `Sync with github.com/<repo>@<sha>`.
-5. Waits until the Space is `RUNNING` (up to 10 minutes).
-6. Checks that `/config` returns 401, so the login still protects the app.
+4. For each Space: uploads (excluding `.venv`, `__pycache__`, `.env`, `.git`, `.pytest_cache`, `supabase/.temp`, `supabase/.branches`, `.claude`) with the commit message `Sync with github.com/<repo>@<sha>`, then waits until it is `RUNNING` (up to 10 minutes).
+5. Checks each Space's `/config`: a private Space must return 404 without a Hugging Face login; then (with your HF token for private Spaces) it must return 401, so the app login protects it, or show the setup page if the Space has no config (the template).
 
 It needs the `hf` CLI logged in (`hf auth whoami`), `gh`/git push access, and the project's `.venv`.
 
 ## 4. Report
 
-Tell the user the commit SHA and subject, that GitHub and the Space are updated, and the check results. If a step failed, say which one, then:
+Tell the user the commit SHA and subject, that GitHub and both Spaces are updated, and the check results. If a step failed, say which one, then:
 
 - Space not `RUNNING`: read `hf spaces logs <space> --tail 100`, find the first error, and report it.
-- `/config` not 401: stop and tell the user. The app may be reachable without the password.
+- `/config` check failed: stop and tell the user. The app may be reachable without the password, or the private Space may be public.
 
 Pushing to GitHub and the Space is visible to everyone who can see them; deploy only when the user asked for it.

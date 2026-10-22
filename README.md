@@ -88,7 +88,7 @@ The chat shows each agent step as a collapsible message: its reasoning, the code
 
 You need a [Supabase](https://supabase.com) project (the free tier works) and a [Hugging Face](https://huggingface.co) account with a token for model calls.
 
-1. **Create the database.** Make a Supabase project, then apply the schema with the [Supabase CLI](https://supabase.com/docs/guides/cli):
+1. **Create the database.** Make a Supabase project, then apply the schema. The quickest way needs no install: open your project's **SQL Editor**, paste in [`supabase/migrations/20261017000000_init.sql`](supabase/migrations/20261017000000_init.sql), and run it. Or, with the [Supabase CLI](https://supabase.com/docs/guides/cli):
 
    ```bash
    supabase link --project-ref <your-project-ref>
@@ -97,16 +97,18 @@ You need a [Supabase](https://supabase.com) project (the free tier works) and a 
 
    This creates `sessions`, `sets`, and `user_exercises` with row-level security on and no public policies, so the public anon key can read nothing.
 
-2. **Copy the Space.** Open the [original Space](https://huggingface.co/spaces/koyohashi/gym-agent) and choose **Duplicate this Space** from the ⋮ menu. Keep it **public** if you want to reach it from your phone without a Hugging Face login; your app password still protects it.
+2. **Copy the Space.** [**Duplicate the template Space**](https://huggingface.co/spaces/koyohashi/gym-agent?duplicate=true) into your account. It holds no secrets, so nothing of anyone else's comes with it, and your copy bills only you.
+   - **Public** (default): reachable from any browser; your app password protects it.
+   - **Private**: hidden from anyone not logged in to Hugging Face as you, behind your app password as well. Stay logged in to huggingface.co on your phone to open it.
 
 3. **Set its secrets and variables** (Space → Settings → Variables and secrets):
 
    | Name | Type | Value |
    | --- | --- | --- |
-   | `SUPABASE_URL` | variable | `https://<your-project-ref>.supabase.co` (replace the copied value) |
+   | `SUPABASE_URL` | variable | `https://<your-project-ref>.supabase.co` |
    | `SUPABASE_SERVICE_KEY` | **secret** | Supabase → Project Settings → API → `service_role` key |
-   | `MODEL_BACKEND` | variable | `hf` |
-   | `MODEL_ID` | variable | e.g. `deepseek-ai/DeepSeek-V4-Flash-0731` |
+   | `MODEL_BACKEND` | variable | `hf` (copied from the template) |
+   | `MODEL_ID` | variable | e.g. `deepseek-ai/DeepSeek-V4-Flash-0731` (copied from the template) |
    | `HF_TOKEN` | **secret** | A token with "Make calls to Inference Providers" |
    | `GRADIO_USER` / `GRADIO_PASSWORD` | **secret** | The login for your app; use a strong password |
    | `APP_TIMEZONE` | variable | Your timezone, e.g. `America/New_York` (defaults to UTC) |
@@ -114,7 +116,7 @@ You need a [Supabase](https://supabase.com) project (the free tier works) and a 
    | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | optional **secret** | Langfuse project keys; with both set, every chat turn is traced (steps, code, tool calls, tokens) |
    | `LANGFUSE_BASE_URL` | optional variable | Your Langfuse region, e.g. `https://us.cloud.langfuse.com` (defaults to the EU cloud) |
 
-   `app.py` refuses to start and names anything that's missing.
+   Until everything required is set, the Space shows a setup page listing what's missing. Restart it after adding them.
 
 4. Open `https://<your-username>-<space-name>.hf.space` on your phone and add it to your home screen.
 
