@@ -25,21 +25,21 @@ Commit with a message that says what changed and why (subject line under ~70 cha
 scripts/deploy.sh
 ```
 
-By default it deploys to `koyohashi/gym-agent-personal` (private, the real app) and `koyohashi/gym-agent` (public template with no secrets, which shows a setup page). Set `HF_SPACES="<owner>/<space> ..."` to deploy elsewhere. The script:
+By default it deploys to `koyohashi/gym-agent` (public, behind the owner-only Hugging Face sign-in in `signin.py`). Set `HF_SPACES="<owner>/<space> ..."` to deploy elsewhere. The script:
 
 1. Refuses to run with uncommitted changes.
 2. Checks that the app imports with placeholder settings.
 3. Pushes to GitHub.
 4. For each Space: uploads (excluding `.venv`, `__pycache__`, `.env`, `.git`, `.pytest_cache`, `supabase/.temp`, `supabase/.branches`, `.claude`) with the commit message `Sync with github.com/<repo>@<sha>`, then waits until it is `RUNNING` (up to 10 minutes).
-5. Checks each Space's `/config`. The app has no login of its own, so a private Space must return 404 without a Hugging Face login and serve the app with your HF token; a public Space (the template) must show the setup page, never the app.
+5. Checks who can open each Space: the sign-in page loads, and without signing in the app's page redirects to it while `/app/config`, the API, and the app's files return 401. A private Space must also return 404 without a Hugging Face login. A Space with no config shows the setup page instead.
 
 It needs the `hf` CLI logged in (`hf auth whoami`), `gh`/git push access, and the project's `.venv`.
 
 ## 4. Report
 
-Tell the user the commit SHA and subject, that GitHub and both Spaces are updated, and the check results. If a step failed, say which one, then:
+Tell the user the commit SHA and subject, that GitHub and the Space are updated, and the check results. If a step failed, say which one, then:
 
 - Space not `RUNNING`: read `hf spaces logs <space> --tail 100`, find the first error, and report it.
-- `/config` check failed: stop and tell the user. If a public Space is serving the app, anyone can use it; it needs to go private right away.
+- Access check failed: stop and tell the user. If the app answers without a sign-in, anyone can use it; make the Space private right away (`hf repos settings`/the Space settings) until it's fixed.
 
 Pushing to GitHub and the Space is visible to everyone who can see them; deploy only when the user asked for it.

@@ -9,6 +9,8 @@ app_file: app.py
 python_version: "3.12"
 pinned: false
 short_description: Typing-only gym logger driven by a smolagents agent
+hf_oauth: true
+hf_oauth_expiration_minutes: 43200
 tags:
 - smolagents
 - agent
@@ -50,7 +52,8 @@ The header has a button for a day-grouped list of your sets and a session timer 
 
 ```mermaid
 flowchart LR
-    phone[Phone browser] --> ui[Gradio UI<br>ui.py]
+    phone[Phone browser] --> signin[Owner-only sign-in<br>signin.py]
+    signin --> ui[Gradio UI<br>ui.py]
     ui --> agent[smolagents CodeAgent<br>agent.py]
     agent <--> model[LLM<br>HF Inference / Ollama / LiteLLM]
     agent --> tools[Tools<br>tools.py]
@@ -83,6 +86,7 @@ The chat shows each agent step as a collapsible message: its reasoning, the code
 - **One flexible read tool instead of many narrow ones.** `find_workouts` replaced separate "last performance" and "sessions by day" tools. Muscle groups come from the exercise list, so "when did I last do chest?" needed no schema change.
 - **The model gets today's date.** Each message carries a "Today is …" line in your timezone, so "last week" resolves to real dates.
 - **Single user per deployment.** Every row has a `user_id`, but each deployment serves one person, so there is no sign-up flow. Self-hosting means nobody pays for anyone else's model calls.
+- **Sign in with Hugging Face, owner only.** On a Space, every request to the app (page, files, and API) must come from the Space owner's Hugging Face account, matched by its permanent account id rather than the username. A Gradio-level login button would only hide the page and leave the API open. Turn on two-factor authentication on Hugging Face: your account is the only key.
 
 ## Deploy your own
 
@@ -97,17 +101,16 @@ You need a [Supabase](https://supabase.com) project (the free tier works) and a 
 
    This creates `sessions`, `sets`, and `user_exercises` with row-level security on and no public policies, so the public anon key can read nothing.
 
-2. **Copy the Space.** [**Duplicate the template Space**](https://huggingface.co/spaces/koyohashi/gym-agent?duplicate=true) into your account. It holds no secrets, so nothing of anyone else's comes with it, and your copy bills only you.
-   Make your copy **private**. The app has no login of its own: a private Space is hidden from anyone not logged in to Hugging Face as you, which is what keeps your data and model budget yours. On a public Space the app shows a setup page instead of running. Stay logged in to huggingface.co on your phone to open it.
+2. **Copy the Space.** [**Duplicate this Space**](https://huggingface.co/spaces/koyohashi/gym-agent?duplicate=true) into your account. Secrets are never copied, so nothing of anyone else's comes with it, and your copy bills only you. Public is fine: only you, signed in with Hugging Face, can use your copy.
 
 3. **Set its secrets and variables** (Space → Settings → Variables and secrets):
 
    | Name | Type | Value |
    | --- | --- | --- |
-   | `SUPABASE_URL` | variable | `https://<your-project-ref>.supabase.co` |
+   | `SUPABASE_URL` | **secret** | `https://<your-project-ref>.supabase.co` |
    | `SUPABASE_SERVICE_KEY` | **secret** | Supabase → Project Settings → API → `service_role` key |
-   | `MODEL_BACKEND` | variable | `hf` (copied from the template) |
-   | `MODEL_ID` | variable | e.g. `deepseek-ai/DeepSeek-V4-Flash-0731` (copied from the template) |
+   | `MODEL_BACKEND` | variable | `hf` (copied from the original) |
+   | `MODEL_ID` | variable | e.g. `deepseek-ai/DeepSeek-V4-Flash-0731` (copied from the original) |
    | `HF_TOKEN` | **secret** | A token with "Make calls to Inference Providers" |
    | `APP_TIMEZONE` | variable | Your timezone, e.g. `America/New_York` (defaults to UTC) |
    | `APP_USER_ID` | optional | Leave unset |
@@ -116,7 +119,7 @@ You need a [Supabase](https://supabase.com) project (the free tier works) and a 
 
    Until everything required is set, the Space shows a setup page listing what's missing. Restart it after adding them.
 
-4. Open `https://<your-username>-<space-name>.hf.space` on your phone and add it to your home screen.
+4. Open `https://<your-username>-<space-name>.hf.space` on your phone, tap **Sign in with Hugging Face**, and add the app to your home screen. On iPhone, the home-screen app may keep its own sign-in; if it shows the sign-in page, sign in from there once. A sign-in lasts a couple of weeks.
 
 **Hardware and cost.** Hugging Face only runs Gradio Spaces on free CPU hardware for PRO accounts. Free accounts older than 30 days can use ZeroGPU instead (`app.py` includes the hook ZeroGPU needs, so no code changes), and anyone can run it locally for free (below). Model calls are billed to your Hugging Face account; set a spending limit in your billing settings.
 
@@ -129,6 +132,7 @@ cp .env.example .env           # fill it in
 .venv/bin/python app.py
 ```
 
+- Locally there's no sign-in; anyone who can reach the port can use it.
 - `MODEL_BACKEND=ollama` with `MODEL_ID=qwen2.5:7b` runs against a local [Ollama](https://ollama.com) server. Small local models make more mistakes than hosted ones.
 - `scripts/test-db.sh app` runs the app against a local Supabase stack in Docker instead of your real project, loaded with the schema and some sample workouts from `supabase/seed.sql`.
 
@@ -147,6 +151,7 @@ Unit tests cover exercise matching, the database layer, and the tools, with no m
 | --- | --- |
 | `app.py` | Entrypoint: checks config, builds the agent, launches the UI |
 | `ui.py` | Mobile-first Gradio UI: chat, sets list, session timer |
+| `signin.py` | Owner-only Sign in with Hugging Face in front of the app on a Space |
 | `agent.py` | Model config, `build_agent()`, streaming of agent steps |
 | `tools.py` | The agent's tools |
 | `db.py` | All database access (Supabase) |

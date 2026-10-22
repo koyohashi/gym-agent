@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Deploy: push the current commit to GitHub, sync it to the Hugging Face Spaces, and verify each one.
 #
-#   scripts/deploy.sh            # koyohashi/gym-agent-personal (private, the real app) and koyohashi/gym-agent (public template)
+#   scripts/deploy.sh            # Space defaults to koyohashi/gym-agent
 #   HF_SPACES="you/gym-agent" scripts/deploy.sh
 #
-# The app has no login of its own, so a private Space must be hidden (404) from anyone not logged in to Hugging
-# Face, and a public Space (like the template) must show the setup page instead of the app.
+# The app sits behind an owner-only Hugging Face sign-in (signin.py), so the check is that the sign-in page loads
+# and the app itself (page and API) refuses a request that isn't signed in. A private Space must also be hidden
+# (404) from anyone not logged in to Hugging Face. A Space with no config shows the setup page instead.
 #
 # Refuses to run with uncommitted changes, so the Space always matches a GitHub commit.
 set -euo pipefail
 
-SPACES="${HF_SPACES:-koyohashi/gym-agent-personal koyohashi/gym-agent}"
+SPACES="${HF_SPACES:-koyohashi/gym-agent}"
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 PY="$ROOT/.venv/bin/python"
@@ -79,17 +80,22 @@ if "$PY" -I -c "import sys; from huggingface_hub import HfApi; sys.exit(0 if HfA
   echo "private Space, /config without a Hugging Face login: $CODE"
   [ "$CODE" = "404" ] || fail "expected 404 (hidden from anyone not logged in to Hugging Face), got $CODE."
 fi
-CONFIG="$(curl -s ${HF_AUTH[@]+"${HF_AUTH[@]}"} -w '\n%{http_code}' "https://$HOST.hf.space/config")"
-CODE="$(tail -n1 <<<"$CONFIG")"
-SETUP="$(grep -q "Gym Agent needs setup" <<<"$CONFIG" && echo 1 || true)"
-echo "/config${PRIVATE:+ with your Hugging Face login}: $CODE${SETUP:+ (setup page)}"
-[ "$CODE" = "200" ] || fail "expected 200, got $CODE."
-if [ -n "$PRIVATE" ]; then
-  [ -z "$SETUP" ] || fail "the private Space shows the setup page; read it at https://$HOST.hf.space for what's missing."
-  echo "the app is running; only your Hugging Face account can open it"
+get() { curl -s ${HF_AUTH[@]+"${HF_AUTH[@]}"} -o /dev/null -w '%{http_code}' "https://$HOST.hf.space$1"; }
+CONFIG="$(curl -s ${HF_AUTH[@]+"${HF_AUTH[@]}"} "https://$HOST.hf.space/config")"
+if grep -q "Gym Agent needs setup" <<<"$CONFIG"; then
+  echo "not configured: showing the setup page (it holds no data)"
 else
-  [ -n "$SETUP" ] || fail "a public Space is serving the app with no login. Make it private now."
-  echo "public: showing the setup page, not the app"
+  LANDING="$(curl -s ${HF_AUTH[@]+"${HF_AUTH[@]}"} "https://$HOST.hf.space/")"
+  grep -q "Sign in with Hugging Face" <<<"$LANDING" || fail "the sign-in page didn't load at https://$HOST.hf.space/."
+  echo "sign-in page: ok"
+  for path in /app/config /app/gradio_api/info /app/gradio_api/queue/join /app/theme.css; do
+    CODE="$(get "$path")"
+    echo "$path without signing in: $CODE"
+    [ "$CODE" = "401" ] || fail "expected 401 (owner sign-in required), got $CODE. The app may be open to anyone."
+  done
+  CODE="$(get /app/)"
+  echo "/app/ without signing in: $CODE (redirect to the sign-in page)"
+  [ "$CODE" = "307" ] || fail "expected a redirect to the sign-in page, got $CODE."
 fi
 }
 

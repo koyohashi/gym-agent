@@ -72,7 +72,7 @@ THEME = gr.themes.Base(
     **{f"{k}_dark": v for k, v in _COLORS.items()},
 )
 
-# Ticks the session pill every second in the browser.
+# Ticks the session pill every second in the browser, and shows a message's buttons on a long press.
 HEAD_JS = """
 <script>
 // The pill's label is owned here (Gradio never changes it): elapsed time while a session runs, else "Start session".
@@ -89,6 +89,21 @@ const renderSessionPill = () => {
   if (btn.textContent !== label) btn.textContent = label;
 };
 setInterval(renderSessionPill, 250);
+
+// Phones have no hover, so a long press on a message shows its buttons (copy, retry, undo); a tap elsewhere hides them.
+let pressTimer;
+const hideMessageButtons = () =>
+  document.querySelectorAll("#chatbot .message-buttons.shown").forEach(b => b.classList.remove("shown"));
+document.addEventListener("touchstart", e => {
+  const row = e.target.closest("#chatbot .message-row");
+  if (!row) { if (!e.target.closest("#chatbot .message-buttons")) hideMessageButtons(); return; }
+  pressTimer = setTimeout(() => {
+    hideMessageButtons();
+    const btns = row.nextElementSibling;
+    if (btns && btns.classList.contains("message-buttons")) btns.classList.add("shown");
+  }, 450);
+}, { passive: true });
+["touchend", "touchmove", "touchcancel"].forEach(t => document.addEventListener(t, () => clearTimeout(pressTimer)));
 </script>
 """
 
@@ -157,6 +172,18 @@ CSS = f"""
 @keyframes working-shimmer {{ to {{ background-position: -200% 0; }} }}
 @keyframes working-hop {{ 0%, 60%, 100% {{ transform: translateY(0); opacity: 0.4; }}
   30% {{ transform: translateY(-5px); opacity: 1; }} }}
+/* A message's buttons (copy, retry, undo) and the chat toolbar stay hidden until you hover, or long-press on a
+   phone (see HEAD_JS). They keep their space so messages don't jump when they appear. */
+#chatbot .message-buttons, #chatbot .icon-button-wrapper.top-panel {{ opacity: 0; pointer-events: none;
+  transition: opacity 0.15s; }}
+#chatbot .message-buttons.shown {{ opacity: 1; pointer-events: auto; }}
+@media (hover: hover) {{
+  #chatbot .message-row:hover + .message-buttons, #chatbot .message-buttons:hover,
+  #chatbot:hover .icon-button-wrapper.top-panel {{ opacity: 1; pointer-events: auto; }}
+}}
+@media (hover: none) {{  /* the long press is ours, not iOS's text-selection menu */
+  #chatbot .message-row {{ -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }}
+}}
 /* 16px+ text in every field: iOS Safari zooms in on focus below that (it was zooming on the login form). */
 input, textarea, select {{ font-size: 16px !important; }}
 @media (max-width: 768px) {{  /* phones: drop the chat toolbar (share, clear, copy conversation) */
@@ -441,5 +468,11 @@ def build_ui(make_agent: Callable) -> gr.Blocks:
 
 
 def launch(demo: gr.Blocks) -> None:
-    demo.launch(ssr_mode=False, theme=THEME, css=CSS, head=HEAD_JS,
-                footer_links=[], pwa=True)
+    """On a Space, behind the owner-only Hugging Face sign-in (signin.py); locally, open."""
+    options = dict(ssr_mode=False, theme=THEME, css=CSS, head=HEAD_JS, footer_links=[], pwa=True)
+    if os.environ.get("SPACE_ID"):
+        import signin
+
+        signin.serve(demo, **options)
+    else:
+        demo.launch(**options)
